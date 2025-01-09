@@ -1,0 +1,13 @@
+name: spotify-project
+dependencies:
+ - ipython
+ - jupyter
+ - numpy
+ - scipy
+ - pandas
+ - matplotlib
+ - plotly
+ - pandas
+ - spotipy
+ - pip:
+   - -r requirements.txt
