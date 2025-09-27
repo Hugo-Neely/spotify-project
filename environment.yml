@@ -1,4 +1,7 @@
 name: spotify-project
+channels:
+- defaults
+- conda-forge
 dependencies:
 - pip
  - pip:
