@@ -2,6 +2,7 @@ jupyter
 numpy
 scipy
 mpltools
+matplotlib
 plotly
 pandas
 openpyxl
@@ -9,3 +10,4 @@ spotipy
 torch
 torchaudio
 scikit-optimize
+oauthlib
