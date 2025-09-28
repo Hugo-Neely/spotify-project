@@ -106,12 +106,14 @@ class MonthlyPlaylistHandler:
         ind = df['name'].astype(bool)  # series containing indexes of all monthly playlists
         ind[:] = False  # ensure we start with all False
 
-        for year_style in year_styles.values():
+        for year_style in self.year_styles.values():
             ind = ind | df['name'].str.contains(year_style)
         df = df.loc[ind]  # apply index
 
+        df['n_tracks'] = df['tracks'].apply(lambda x: eval(x)['total'])
+
         # only keep useful columns
-        df = df[['id', 'name', 'description', 'href', 'images', 'snapshot_id']].set_index('id')
+        df = df[['id', 'name', 'description', 'n_tracks', 'href', 'images', 'snapshot_id']].set_index('id')
 
         # save if requested, and return
         if to_csv:
@@ -153,6 +155,7 @@ class MonthlyPlaylistHandler:
         
         return pd.read_csv(
             os.path.join(self.data_dir, file), 
-            index_col = 0
-        )
+            #index_col = 0,
+        ).set_index('id')
 
+    
