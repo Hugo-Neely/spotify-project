@@ -112,8 +112,44 @@ class MonthlyPlaylistHandler:
 
         df['n_tracks'] = df['tracks'].apply(lambda x: eval(x)['total'])
 
+        month_to_int = {
+            'jan': '01',
+            'january': '01',
+            'feb': '02',
+            'february': '02',
+            'mar': '03',
+            'march': '03',
+            'apr':'04',
+            'april':'04',
+            'may':'05',
+            'jun':'06',
+            'june':'06',
+            'jul':'07',
+            'july':'07',
+            'aug':'08',
+            'august':'08',
+            'sep':'09',
+            'september':'09',
+            'oct':'10',
+            'october':'10',
+            'nov':'11',
+            'november':'11',
+            'dec':'12',
+            'december':'12'
+            }
+        
+        # construct date
+        df['date'] = df['name'].str.replace(' ', '-').str.casefold()
+        for mth_name, mth_int in month_to_int.items():
+            df['date'] = df['date'].str.replace(mth_name+'-', mth_int+'-')
+        df['date'] = df['date'].str.replace('-22','-2022')
+        df['date'] = df['date'].str.replace('-23','-2023')
+        df['date'] = df['date'].str.replace('-24','-2024')
+        df['date'] = df['date'].apply(lambda x: x[:7])
+        df['date'] = pd.to_datetime(df['date']).dt.date
+
         # only keep useful columns
-        df = df[['id', 'name', 'description', 'n_tracks', 'href', 'images', 'snapshot_id']].set_index('id')
+        df = df[['id', 'date', 'name', 'description', 'n_tracks', 'href', 'images', 'snapshot_id']].set_index('id')
 
         # save if requested, and return
         if to_csv:
@@ -153,9 +189,11 @@ class MonthlyPlaylistHandler:
         else:
             raise ValueError(f'Unexpected type "{type(date)}" for date input encountered. Try entering date as either a string (YYYY-MM-DD) or datetime.date.')
         
-        return pd.read_csv(
+        df = pd.read_csv(
             os.path.join(self.data_dir, file), 
             #index_col = 0,
         ).set_index('id')
+        df['date'] = pd.to_datetime(df['date']).dt.date
+        return df
 
     
