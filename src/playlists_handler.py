@@ -20,7 +20,7 @@ class MonthlyPlaylistHandler:
                    '2024':'-24',
                    '2025':'2025'}
     
-    data_dir = 'data'
+    data_dir = os.path.abspath('data')
     
     def __init__(self, spotify_client:spotipy.Spotify = None):
         '''

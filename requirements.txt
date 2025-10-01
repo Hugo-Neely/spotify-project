@@ -11,3 +11,4 @@ torch
 torchaudio
 scikit-optimize
 oauthlib
+pytest
