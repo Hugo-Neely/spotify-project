@@ -1,5 +1,5 @@
 import os
-from playlists_handler import MonthlyPlaylistHandler
+from playlists import MonthlyPlaylistHandler
 from spotipy import Spotify, SpotifyOAuth
 import pytest
 
@@ -20,7 +20,7 @@ aaaaaa,2199-12-01,Dec-2199,testtesttest,500,https://example.com,https://example.
 
     return test_file
 
-def test_read_mpl():
+def test_read_mpl_csv():
     '''Placeholder test for reading monthly playlists file'''
 
     # create new handler with dummy credentials

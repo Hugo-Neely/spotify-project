@@ -38,10 +38,11 @@ class MonthlyPlaylistHandler:
             a SpotifyOAuth manager as the auth_manager
         '''
         if spotify_client is None:
-            spotify_client = self._new_sp_client()
-        self.sp_client = spotify_client
+            spotify_client = self._new_spotify_client()
+        self.spotify_client = spotify_client
 
-    def _new_sp_client(self, client_id:str = None, client_secret:str = None, redirect_uri:str = None,
+    @staticmethod
+    def _new_spotify_client(client_id:str = None, client_secret:str = None, redirect_uri:str = None,
                        backoff_factor:float = 0.5, **kwargs) -> spotipy.Spotify:
         '''
         Create a new instance of spotipy.Spotify(), optionally providing alternative
@@ -104,7 +105,7 @@ class MonthlyPlaylistHandler:
                                    'name', 'owner', 'primary_color', 'public', 'snapshot_id', 'tracks',
                                    'type', 'uri'])
         while not got_all_pls:
-            playlists = self.sp_client.current_user_playlists(offset = offset)
+            playlists = self.spotify_client.current_user_playlists(offset = offset)
             df = pd.concat([df, pd.DataFrame(playlists['items'])], ignore_index = True)
             
             if len(playlists['items']) < 50:
@@ -377,7 +378,7 @@ class MonthlyPlaylistHandler:
                 date = f'{min_year+y}-{m+1:02d}-01'
                 im = self.get_playlist_cover_image(playlist_date=date, errors='ignore')
                 if im is not None:
-                    ax.imshow(self._make_im_square(im))
+                    ax.imshow(self._centre_square_crop(im))
 
                 ax.axis('off')
         
@@ -386,7 +387,7 @@ class MonthlyPlaylistHandler:
         return fig, axes
     
     @staticmethod
-    def _make_im_square(im):
+    def _centre_square_crop(im):
         h, w, _ = im.shape
         if h == w:
             return im
@@ -400,7 +401,6 @@ class MonthlyPlaylistHandler:
             pad1 = diff // 2
             pad2 = diff - pad1
             return im[:, pad1:-pad2, :]
-
 
 
 
