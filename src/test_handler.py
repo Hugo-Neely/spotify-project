@@ -42,7 +42,7 @@ def test_read_mpl():
     # read latest monthly playlists file. check the columns are as expected
     df_pl = mpl.read_monthly_playlists()
     assert df_pl.index.name == 'id'
-    assert df_pl.columns.to_list() == ['name', 'description', 'n_tracks', 'href', 'images', 'snapshot_id']
+    assert df_pl.columns.to_list() == ['date', 'name', 'description', 'n_tracks', 'href', 'images', 'snapshot_id']
 
 @pytest.fixture(autouse=True)
 def clean():
