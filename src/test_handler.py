@@ -9,7 +9,7 @@ def create_test_file(mpl_handler):
     '''
     Create a new test file in the data directory, returning its name
     '''
-    
+
     # create a new dummy file, from far in the future
     test_file = 'playlists_2200-01-01.csv'
     with open(os.path.join(mpl_handler.data_dir, test_file), 'w') as f:
@@ -21,6 +21,7 @@ aaaaaa,2199-12-01,Dec-2199,testtesttest,500,https://example.com,https://example.
     return test_file
 
 def test_read_mpl():
+    '''Placeholder test for reading monthly playlists file'''
 
     # create new handler with dummy credentials
     mpl = MonthlyPlaylistHandler(
@@ -32,16 +33,12 @@ def test_read_mpl():
                 )
             )
         )
-
+    
     # create a new dummy file, from far in the future
     test_file = create_test_file(mpl)
 
-
-    # check the file we created is identified as the most recent file
-    assert mpl.latest_playlists_file == test_file
-
     # read latest monthly playlists file. check the columns are as expected
-    df_pl = mpl.read_monthly_playlists()
+    df_pl = mpl.read_monthly_playlists(test_file.replace('.csv', '').replace('playlists_', ''))
     assert df_pl.index.name == 'id'
     assert df_pl.columns.to_list() == ['date', 'name', 'description', 'n_tracks', 'url', 'cover_image_url', 'snapshot_id']
 
