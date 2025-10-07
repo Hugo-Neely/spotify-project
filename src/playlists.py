@@ -411,7 +411,7 @@ class MonthlyPlaylistHandler:
                 raise ValueError(f'No cover image found for ID {playlist_id}.')
 
 
-        r = requests.get(pl_im_url.values[0])
+        r = requests.get(pl_im_url)
         im = plt.imread(BytesIO(r.content), format='jpeg')
         plt.imsave(save_path, im)
         return im
@@ -558,8 +558,15 @@ class LoggingSpotifyClient(spotipy.Spotify):
         pandas.DataFrame
             The log file as a DataFrame.
         '''
-        return pd.read_csv(self.log_filepath, parse_dates=['time'])
-    
+        try:
+            df_log = pd.read_csv(self.log_filepath, parse_dates=['time'])
+            return df_log
+        except pd.errors.EmptyDataError:
+            # case where log file is empty
+            with open(self.log_filepath, 'w') as f:
+                f.write('time,message\n')
+            return pd.DataFrame(columns=['time', 'message'])
+
     @property
     def api_rate(self) -> int:
         '''
