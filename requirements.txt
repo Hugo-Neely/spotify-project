@@ -12,3 +12,4 @@ torchaudio
 scikit-optimize
 oauthlib
 pytest
+tqdm

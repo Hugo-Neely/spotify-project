@@ -4,4 +4,5 @@
 *.cache
 */__pycache__
 */.pytest_cache
-data/imgs
+data/imgs/*
+data/logs/*
