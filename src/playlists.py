@@ -10,6 +10,7 @@ import requests
 from io import BytesIO
 import matplotlib.pyplot as plt
 import logging
+from tqdm import tqdm
 
 # ensure data directory is set up as expected
 DATA_DIR = os.path.abspath('data')
@@ -50,11 +51,12 @@ logger_fh.setFormatter(logger_console_formatter)  # use same formatter as consol
 logger.addHandler(logger_fh)
 
 # logging warnings to console
-logger_ch = logging.StreamHandler()
-logger_ch.setLevel(logging.WARNING)
-logger_ch.set_name('console')
-logger_ch.setFormatter(logger_console_formatter)
-logger.addHandler(logger_ch)
+# logger_ch = logging.StreamHandler()
+# logger_ch.setLevel(logging.WARNING)
+# logger_ch.set_name('console')
+# logger_ch.setFormatter(logger_console_formatter)
+# logger.addHandler(logger_ch)
+
 
 
 class MonthlyPlaylistHandler:
@@ -235,7 +237,7 @@ class MonthlyPlaylistHandler:
     def playlists_base_csv_exists(self) -> bool:
         return os.path.exists(os.path.join(self.data_dir, 'playlists.csv'))
 
-    def read_monthly_playlists(self, date = None) -> pd.DataFrame:
+    def read_monthly_playlists(self, date = None, download_if_required = False) -> pd.DataFrame:
         '''
         Read a saved DataFrame of monthly playlists.
 
@@ -245,13 +247,18 @@ class MonthlyPlaylistHandler:
             The date the data was collected. If None, will attempt to read the undated file,
             which is assumed to be the most recent. If the undated file does not exist,
             will read the most recent dated file.
-            
             If the date is specified as a string, it should be given in the form YYYY-MM-DD.
-        
+
+        download_if_required : bool
+            If True, will download the data using `get_monthly_playlists()` if the requested
+            file does not exist.
+            If False (default), will raise a FileNotFoundError if the requested file does not exist.
+
         Returns
         -------
         pandas.DataFrame
         '''
+        
         if date is None:
             file = self.latest_playlists_file
         elif isinstance(date, datetime.date):
@@ -261,10 +268,20 @@ class MonthlyPlaylistHandler:
         else:
             raise ValueError(f'Unexpected type "{type(date)}" for date input encountered. Try entering date as either a string (YYYY-MM-DD) or datetime.date.')
         
-        df = pd.read_csv(
-            os.path.join(self.data_dir, file), 
-        ).set_index('id')
-        df['date'] = pd.to_datetime(df['date']).dt.date
+        if not os.path.exists(os.path.join(self.data_dir, file)):
+            if download_if_required:
+                if date is None:
+                    df = self.get_monthly_playlists(to_csv=True)
+                else:
+                    raise FileNotFoundError(f'File {file} does not exist in data directory {self.data_dir}. Cannot download data for a specific date.')
+            else:
+                raise FileNotFoundError(f'File {file} does not exist in data directory {self.data_dir}. Set download_if_required=True to download the data.')
+        else:
+            df = pd.read_csv(
+                os.path.join(self.data_dir, file), 
+            ).set_index('id')
+            df['date'] = pd.to_datetime(df['date']).dt.date
+        
         return df
     
     def playlist_id(self, playlist_date:Union[str, datetime.date]) -> str:
@@ -487,12 +504,179 @@ class MonthlyPlaylistHandler:
             pad2 = diff - pad1
             return im[:, pad1:-pad2, :]
 
-    def get_tracks(self):
+    def get_tracks(self, backoff_time: float = 5.0, progress_bar: bool = True,
+                   to_csv: bool = True, date_csv: bool = False) -> pd.DataFrame:
         '''
-        Placeholder for getting tracks in each monthly playlist.
-        '''
-        pass
+        Get all tracks in all monthly playlists.
 
+        Parameters
+        ----------
+        backoff_time : float
+            Time in seconds to wait between API calls to avoid rate limiting.
+            Default is 5.0 seconds. Only applies for playlists that require more than 1 call (i.e., playlists with more than 100 tracks).
+        progress_bar : bool
+            If True (default), will display a progress bar while fetching data. Note rate estimates
+            may be inaccurate if backoff_time is large.
+        to_csv : bool
+            If True, will save the resulting pd.DataFrame as a CSV in the data directory.
+        date_csv : bool
+            If True, the saved CSV will have the date of data collection in the filename. Set to
+            True to avoid overwriting previous files.
+
+        Returns
+        -------
+        pandas.DataFrame
+            A DataFrame containing all tracks in all monthly playlists, with one row per artist per track
+        '''
+
+        df_mpls = self.read_monthly_playlists(download_if_required=True)
+
+        track_data = dict(
+            track_name = [],
+            track_artist = [],
+            track_date_added = [],
+            playlist_name = [],
+            track_index = [],  # 0-indexed position in the playlist
+            track_artist_index = [],  # 0-indexed order of artist on the track
+            track_artist_spid = [],
+            track_album = [],
+            track_release_date = [],
+            track_release_date_precision = [],
+            track_duration = [],
+            track_popularity = [],  # note this will change over time, as it depends on number of listens and how recent those listens are
+            track_external_ids = [],  # probably not useful
+            track_spid = []
+        )
+        artist_ids = set()
+
+
+        # get track info for all monthly playlists
+        for id, playlist_data in tqdm(df_mpls.iterrows(), total=len(df_mpls), disable=not progress_bar):
+            n_calls = np.ceil(playlist_data['n_tracks'] / 100)
+
+            for call in range(int(n_calls)):
+                if call > 0:
+                    time.sleep(backoff_time)  # shhh little spotify api client. do not complain. it will all be ok. just rest.
+
+                pl_mth = self.spotify_client.playlist_items(id, limit=100, offset=call*100)
+
+                # iterate through tracks
+                for track_i, track in enumerate(pl_mth['items']):
+
+                    # iterate through each track's artists (can have multiple)
+                    for artist_i, artist in enumerate(track['track']['artists']):
+                        # append all data to lists:
+                        # playlist info
+                        track_data['playlist_name'].append(df_mpls.loc[id, 'name'])
+                        track_data['track_index'].append(track_i + call*100)
+
+                        # track name, album, artists
+                        track_data['track_date_added'].append(track['added_at'])
+                        track_data['track_name'].append(track['track']['name'])
+                        track_data['track_artist'].append(artist['name'])
+                        track_data['track_artist_index'].append(artist_i)
+                        track_data['track_artist_spid'].append(artist['id'])
+                        track_data['track_album'].append(track['track']['album']['name'])
+
+                        # extract artist id for bulk requests later
+                        artist_ids.add(artist['id'])
+
+                        # track info
+                        track_data['track_release_date'].append(track['track']['album']['release_date'])
+                        track_data['track_release_date_precision'].append(track['track']['album']['release_date_precision'])
+                        track_data['track_popularity'].append(track['track']['popularity'])
+                        track_data['track_duration'].append(track['track']['duration_ms'])
+                        track_data['track_external_ids'].append(track['track']['external_ids'])
+                        track_data['track_spid'].append(track['track']['id'])
+
+        artist_genres = dict()
+        artist_popularities = dict()
+
+        # get artist data in blocks of 50
+        artist_ids_list = list(artist_ids)
+        for i in tqdm(range(0, len(artist_ids), 50)):
+            artist_block = artist_ids_list[i:i+50]
+            artists_expanded = self.spotify_client.artists(artist_block)
+            time.sleep(0.1)  # little nap
+            for artist in artists_expanded['artists']:
+                artist_genres[artist['id']] = artist['genres']
+                artist_popularities[artist['id']] = artist['popularity']
+
+
+        df_tracks = pd.DataFrame(track_data)
+        df_tracks['track_date_added'] = pd.to_datetime(df_tracks['track_date_added'])
+        df_tracks['track_artist_genres'] = df_tracks['track_artist_spid'].map(lambda name: artist_genres.get(name, []))
+        df_tracks['track_artist_popularity'] = df_tracks['track_artist_spid'].map(lambda name: artist_popularities.get(name, np.nan))
+
+        def format_release_date(date):
+            if date == '0000':
+                return pd.NA
+            if len(date) == 4:
+                return date + '-01-01'
+            elif len(date) == 7:
+                return date + '-01'
+            else:
+                return date
+        df_tracks['track_release_date'] = pd.to_datetime(df_tracks['track_release_date'].apply(format_release_date))
+
+        if to_csv:
+            if date_csv:
+                filename = f'tracks_{str(datetime.datetime.now().date())}.csv'
+            else:
+                filename = 'tracks.csv'
+            df_tracks.to_csv(
+                os.path.join(self.data_dir, filename),
+                index=False
+            )
+        return df_tracks
+
+    def read_tracks(self, date = None, download_if_required = False) -> pd.DataFrame:
+        '''
+        Read a saved DataFrame of all tracks in all monthly playlists.
+
+        Parameters
+        ----------
+        date : str or datetime.date
+            The date the data was collected. If None, will attempt to read the undated file,
+            which is assumed to be the most recent. If the undated file does not exist,
+            will read the most recent dated file.
+            If the date is specified as a string, it should be given in the form YYYY-MM-DD.
+
+        download_if_required : bool
+            If True, will download the data using `get_tracks()` if the requested
+            file does not exist.
+            If False (default), will raise a FileNotFoundError if the requested file does not exist.
+
+        Returns
+        -------
+        pandas.DataFrame
+        '''
+        
+        if date is None:
+            file = 'tracks.csv'
+        elif isinstance(date, datetime.date):
+            file = f'tracks_{str(date.date())}.csv'
+        elif isinstance(date, str):
+            file = f'tracks_{date}.csv'
+        else:
+            raise ValueError(f'Unexpected type "{type(date)}" for date input encountered. Try entering date as either a string (YYYY-MM-DD) or datetime.date.')
+        
+        if not os.path.exists(os.path.join(self.data_dir, file)):
+            if download_if_required:
+                if date is None:
+                    df = self.get_tracks(to_csv=True)
+                else:
+                    raise FileNotFoundError(f'File {file} does not exist in data directory {self.data_dir}. Cannot download data for a specific date.')
+            else:
+                raise FileNotFoundError(f'File {file} does not exist in data directory {self.data_dir}. Set download_if_required=True to download the data.')
+        else:
+            df = pd.read_csv(
+                os.path.join(self.data_dir, file), 
+            )
+            df['track_date_added'] = pd.to_datetime(df['track_date_added'])
+            df['track_release_date'] = pd.to_datetime(df['track_release_date'])
+        
+        return df
 
 class LoggingSpotifyClient(spotipy.Spotify):
     '''
@@ -597,11 +781,11 @@ class LoggingSpotifyClient(spotipy.Spotify):
         sleep_time : float
             The number of seconds to sleep for if the API rate is over the limit.
         '''
-        near_limit = self.api_rate > (self.RATE_LIMIT_PER_30S * limit_proportion)  # 80% of limit
+        near_limit = self.api_rate > (self.RATE_LIMIT_PER_30S * limit_proportion)  # default is 80% of limit
 
-        if near_limit:
+        if near_limit and sleep_time > 0:
             if warn:
-                logger.warning(f'API rate limit exceeded ({self.api_rate} > {self.RATE_LIMIT_PER_30S}), sleeping for {sleep_time} seconds.')
+                logger.warning(f'Approaching API {limit_proportion} of rate limit ({self.api_rate} > {self.RATE_LIMIT_PER_30S * limit_proportion} = {self.RATE_LIMIT_PER_30S} * {limit_proportion}), sleeping for {sleep_time} seconds.')
             time.sleep(sleep_time)
             self.check_api_rate(sleep_time=sleep_time, # keep checking until we're under the limit
                                 limit_proportion=limit_proportion, 
