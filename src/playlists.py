@@ -535,6 +535,7 @@ class MonthlyPlaylistHandler:
             track_name = [],
             track_artist = [],
             track_date_added = [],
+            playlist_id = [],
             playlist_name = [],
             track_index = [],  # 0-indexed position in the playlist
             track_artist_index = [],  # 0-indexed order of artist on the track
@@ -567,6 +568,7 @@ class MonthlyPlaylistHandler:
                     for artist_i, artist in enumerate(track['track']['artists']):
                         # append all data to lists:
                         # playlist info
+                        track_data['playlist_id'].append(id)
                         track_data['playlist_name'].append(df_mpls.loc[id, 'name'])
                         track_data['track_index'].append(track_i + call*100)
 
