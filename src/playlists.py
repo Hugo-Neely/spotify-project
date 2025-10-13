@@ -11,6 +11,7 @@ from io import BytesIO
 import matplotlib.pyplot as plt
 import logging
 from tqdm import tqdm
+import json
 
 # ensure data directory is set up as expected
 DATA_DIR = os.path.abspath('data')
@@ -64,16 +65,6 @@ class MonthlyPlaylistHandler:
     Handler for monthly playlist data. Contains a spotipy Spotify instance,
     handling authentication.
     '''
-
-    # style of each monthly playlist title in each year
-    year_styles = {'2018':'2018',
-                   '2019':'2019',
-                   '2020':'2020',
-                   '2021':'2021',
-                   '2022':' 22',
-                   '2023':' 23',
-                   '2024':'-24',
-                   '2025':'2025'}
     
     data_dir = DATA_DIR
     
@@ -138,6 +129,11 @@ class MonthlyPlaylistHandler:
             backoff_factor=backoff_factor,
             **kwargs
         )
+    
+    @property
+    def year_styles(self):
+        with open(os.path.join(self.data_dir, 'year_styles.json', 'r')) as f:
+            return json.load(f)
         
     def get_monthly_playlists(self, to_csv:bool = True, date_csv:bool = False) -> pd.DataFrame:
         '''
