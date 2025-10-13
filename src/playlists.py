@@ -893,8 +893,9 @@ class MonthlyPlaylist:
             
     @property
     def track_data(self):
-        return MonthlyPlaylistHandler().read_tracks().loc[df_tracks['playlist_id'] == self.sp_id]
-            
+        df_tracks = MonthlyPlaylistHandler().read_tracks()
+        return df_tracks.loc[df_tracks['playlist_id'] == self.sp_id]
+
     def __getitem__(self, key):
         return self.track_data[key]
     
