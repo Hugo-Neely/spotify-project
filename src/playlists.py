@@ -811,3 +811,119 @@ class LoggingSpotifyClient(spotipy.Spotify):
             The message to log.
         '''
         logger.info(message)
+
+class MonthlyPlaylist:
+    '''
+    Object encompassing all data for a monthly playlist
+    '''
+    playlists_filepath = os.path.join(DATA_DIR, 'playlists.csv')
+    tracks_filepath = os.path.join(DATA_DIR, 'tracks.csv')
+
+    def __init__(self, identifier = None, /, sp_id=None, date=None, name=None):
+        '''
+        Create a MonthlyPlaylist object, identified by either its Spotify ID, date, or name.
+        This object contains all data about the playlist, including track data, cover image, and
+        relevant metadata.
+
+        Parameters
+        ----------
+        identifier : str or datetime.date or datetime.datetime, optional
+            A single identifier for the playlist, which can be either its Spotify ID (str),
+            date (str, datetime.date or datetime.datetime), or name (str). If provided, this takes
+            precedence over the other parameters.
+        sp_id : str, optional
+            The Spotify ID of the playlist. Must be 22 characters long. Ignored if `identifier` is provided.
+        date : str or datetime.date or datetime.datetime, optional
+            The date associated with the playlist. If a string is provided, it must be in the
+            format 'YYYY-MM-01'. Ignored if `identifier` is provided.
+        name : str, optional
+            The name of the playlist. Ignored if `identifier` is provided.
+
+        Raises
+        ------
+        FileNotFoundError
+            If the required data files (playlists.csv and tracks.csv) are not found in the
+            expected data directory.
+        ValueError
+            If the provided identifier cannot be identified as a Spotify ID, date, or name.
+        '''
+        if not self._playlists_file_exists or not self._tracks_file_exists:
+            missing_files = ' '.join([f"{self.playlists_filepath if not self._playlists_file_exists else ''}", 
+                                      f"{self.tracks_filepath if not self._tracks_file_exists else ''}"])
+            raise FileNotFoundError(f"Tried initialising MonthlyPlaylist object, but missing: {missing_files}. Playlist data must be downloaded to initialise a playlist object.")
+
+        if identifier:
+            id_type = self._identify_identifier(identifier)
+            if id_type == 'sp_id':
+                sp_id = identifier
+
+            elif id_type == 'date':
+                date = identifier
+
+            elif id_type == 'name':
+                name = identifier
+            else:
+                raise ValueError(f'Unidentified identifier type "{identifier}" encountered.')
+        
+        df_mpls = MonthlyPlaylistHandler().read_monthly_playlists()
+        if sp_id:
+            data = df_mpls.loc[sp_id]
+        elif date:
+            data = df_mpls.loc[df_mpls['date'] == pd.to_datetime(date).date()].iloc[0]
+        elif name:
+            data = df_mpls.loc[df_mpls['name'] == name].iloc[0]
+
+        for item in data.index:
+            setattr(self, item, data[item])
+        self.sp_id = data.name
+
+    def _identify_identifier(self, identifier):
+        '''Identify whether a given identifier is a spotfy id, date, or playlist name.'''
+        
+        if isinstance(identifier, (datetime.date, datetime.datetime)):
+            return 'date'
+        
+        elif isinstance(identifier, str):
+            if identifier[:2] == '20' and identifier.count('-') == 2 and identifier[-2:] == '01':
+                return 'date'
+            elif len(identifier) == 22 and ' ' not in identifier and '-' not in identifier:
+                return 'sp_id'
+            else:
+                return 'name'
+            
+    @property
+    def track_data(self):
+        return MonthlyPlaylistHandler().read_tracks().loc[df_tracks['playlist_id'] == self.sp_id]
+            
+    def __getitem__(self, key):
+        return self.track_data[key]
+    
+    @property
+    def genres(self):
+        return set(self['track_artist_genres'].apply(lambda x: eval(x)).sum())
+    
+    @property
+    def cover_img_filepath(self):
+        return os.path.join(IMG_DIR, f"cover_{self.date.year}-{self.date.month:02d}.jpeg")
+    
+    @property
+    def cover_img(self):
+        if self._cover_img_exists:
+            return plt.imread(self.cover_img_filepath)
+        else:
+            raise FileNotFoundError(f"Cover image file not found at expected location: {self.cover_img_filepath}")
+    
+    def __repr__(self):
+        return f"""MonthlyPlaylist: {self.name}"""
+
+    @property
+    def _playlists_file_exists(self):
+        return os.path.exists(self.playlists_filepath)
+    
+    @property
+    def _tracks_file_exists(self):
+        return os.path.exists(self.tracks_filepath)
+
+    @property
+    def _cover_img_exists(self):
+        return os.path.exists(self.cover_img_filepath)
