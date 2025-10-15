@@ -595,7 +595,7 @@ class MonthlyPlaylistHandler:
         for i in tqdm(range(0, len(artist_ids), 50)):
             artist_block = artist_ids_list[i:i+50]
             artists_expanded = self.spotify_client.artists(artist_block)
-            time.sleep(0.1)  # little nap
+            time.sleep(0.1)  # catnap
             for artist in artists_expanded['artists']:
                 artist_genres[artist['id']] = artist['genres']
                 artist_popularities[artist['id']] = artist['popularity']
@@ -675,6 +675,144 @@ class MonthlyPlaylistHandler:
             df['track_release_date'] = pd.to_datetime(df['track_release_date'])
         
         return df
+
+    @property
+    def df_tracks(self) -> pd.DataFrame:
+        '''
+        Shortcut to read the most recent tracks DataFrame.
+
+        Returns
+        -------
+        pandas.DataFrame
+            The most recently saved DataFrame of all tracks in all monthly playlists.
+        '''
+        return self.read_tracks(download_if_required=True)
+    
+    @property
+    def df_pl(self) -> pd.DataFrame:
+        '''
+        Shortcut to read the most recent monthly playlists DataFrame.
+
+        Returns
+        -------
+        pandas.DataFrame
+            The most recently saved DataFrame of all monthly playlists.
+        '''
+        return self.read_monthly_playlists(download_if_required=True)
+
+    @property
+    def ids(self) -> list:
+        '''
+        Get a list of all monthly playlist IDs.
+
+        Returns
+        -------
+        list
+            A list of all monthly playlist Spotify IDs.
+        '''
+        df_pl = self.read_monthly_playlists(download_if_required=False)
+        return df_pl.index.tolist()
+    
+    @property
+    def ids_to_dates(self) -> dict:
+        '''
+        Dictionary mapping all monthly playlist IDs to their dates.
+
+        Returns
+        -------
+        dict
+            A dictionary mapping all monthly playlist IDs to their dates.
+        '''
+        df_pl = self.read_monthly_playlists(download_if_required=False)
+        return df_pl['date'].to_dict()
+
+    @property
+    def ids_to_names(self) -> dict:
+        '''
+        Dictionary mapping all monthly playlist IDs to their names.
+
+        Returns
+        -------
+        dict
+            A dictionary mapping all monthly playlist IDs to their names.
+        '''
+        df_pl = self.read_monthly_playlists(download_if_required=False)
+        return df_pl['name'].to_dict()
+    
+    @property
+    def names_to_ids(self) -> dict:
+        '''
+        Dictionary mapping all monthly playlist names to their IDs.
+
+        Returns
+        -------
+        dict
+            A dictionary mapping all monthly playlist names to their IDs.
+        '''
+        df_pl = self.read_monthly_playlists(download_if_required=False)
+        return df_pl.reset_index().set_index('name')['id'].to_dict()
+    
+    @property
+    def dates_to_ids(self) -> dict:
+        '''
+        Dictionary mapping all monthly playlist dates to their IDs.
+
+        Returns
+        -------
+        dict
+            A dictionary mapping all monthly playlist dates to their IDs.
+        '''
+        df_pl = self.read_monthly_playlists(download_if_required=False)
+        return df_pl.reset_index().set_index('date')['id'].to_dict()
+    
+    @property
+    def genres(self) -> set:
+        '''
+        Set of genres present in all monthly playlists
+
+        Returns
+        -------
+        set
+            A set of all genres present in all monthly playlists.
+        '''
+        return np.array(list(set(genre for genres in self.df_tracks['track_artist_genres'] for genre in eval(genres))))
+
+    @property
+    def artists(self) -> np.ndarray:
+        '''
+        Set of artists present in all monthly playlists
+
+        Returns
+        -------
+        np.ndarray
+            An array of all artists present in all monthly playlists.
+        '''
+        return self.df_tracks['track_artist'].unique()
+        
+    @property
+    def dates(self) -> np.ndarray:
+        '''
+        Dates of all playlists present in the downloaded playlists.csv file
+
+        Returns
+        -------
+        np.ndarray
+            An array of the dates (months) the monthly playlist data covers
+        '''
+        return self.df_pl['date'].unique()
+    
+    @property
+    def artist_timeseries(self) -> pd.DataFrame:
+        '''
+        A dataframe with index of all artists present in the data, and columns of playlist dates, with
+        data showing how many tracks by/featuring that artist are present in the given months playlist
+
+        Returns
+        -------
+        pd.DataFrame
+        '''
+        raise NotImplementedError()
+        
 
 class LoggingSpotifyClient(spotipy.Spotify):
     '''
@@ -900,9 +1038,39 @@ class MonthlyPlaylist:
         return self.track_data[key]
     
     @property
+    def loc(self):
+        return self.track_data.loc
+    
+    @property
     def genres(self):
         return set(self['track_artist_genres'].apply(lambda x: eval(x)).sum())
     
+    @property
+    def artists(self):
+        return set(self['track_artist'].unique())
+    
+    @property
+    def artist_track_counts(self):
+        return self['track_artist'].value_counts()
+    
+    def tracks_with_artist_genre(self, genre, comparison_type = 'exact'):
+        if comparison_type == 'exact':
+            return self.loc[self['track_artist_genres'].apply(lambda x: genre in ','.join(x))]
+        elif comparison_type == 'like':
+            return self.loc[self['track_artist_genres'].apply(lambda x: genre in x)]
+    
+    def tracks_with_artist(self, artist_name):
+        return self.loc[self['track_artist'].str.lower() == artist_name.lower()]
+
+    def n_tracks_with_artist_genre(self, genre, comparison_type = 'exact'):
+        return self.tracks_with_artist_genre(genre, comparison_type).shape[0]
+
+    def n_tracks_with_artist(self, artist_name):
+        return self.tracks_with_artist(artist_name).shape[0]
+
+    def genre_track_counts(self, comparison_type:str = 'exact'):
+        return {genre: self.n_tracks_with_artist_genre(genre, comparison_type) for genre in self.genres}
+
     @property
     def cover_img_filepath(self):
         return os.path.join(IMG_DIR, f"cover_{self.date.year}-{self.date.month:02d}.jpeg")
@@ -913,6 +1081,29 @@ class MonthlyPlaylist:
             return plt.imread(self.cover_img_filepath)
         else:
             raise FileNotFoundError(f"Cover image file not found at expected location: {self.cover_img_filepath}")
+    
+    def plot_cover_img(self, ax = None, **kwargs):
+        '''
+        Plot the cover image of the playlist using plt.imshow.
+
+        Parameters
+        ----------
+        ax : plt.Axes, optional
+            Axes to plot the image on. If None (default), will be plot on its own axes using plt.imshow()
+        kwargs : dict, optional
+            Optional keyword arguments to pass to plt.imshow/ax.imshow
+
+        Returns
+        -------
+        ax
+            The created or modified axes object
+        '''
+        if ax:
+            ax.imshow(self.cover_img, **kwargs)
+        else:
+            ax = plt.imshow(self.cover_img, **kwargs)
+        
+        return ax
     
     def __repr__(self):
         return f"""MonthlyPlaylist: {self.name}"""
