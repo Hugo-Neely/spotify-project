@@ -8,6 +8,7 @@ from typing import Union, Tuple
 import numpy as np
 import requests
 from io import BytesIO
+import matplotlib.dates as m_dates
 import matplotlib.pyplot as plt
 import logging
 from tqdm import tqdm
@@ -58,7 +59,445 @@ logger.addHandler(logger_fh)
 # logger_ch.setFormatter(logger_console_formatter)
 # logger.addHandler(logger_ch)
 
+supergenre_lists = {
+    # EDM//electronic//dance
+    'EDM':
+    [
+        'acid house',
+        'alternative dance',
+        'afro house', # afrobeats?
+        'afro tech',
+        'ballroom vogue',
+        'baltimore club',
+        'bass house',
+        'bassline',
+        'big beat',
+        'breakbeat',
+        'breakcore',
+        'chicago house',
+        'chillstep',
+        'dance',
+        'dancehall',
+        'deep house',
+        'disco house',
+        'disco', # DISCO - could just be part of above?
+        'downtempo',
+        'drum and bass',
+        'drumstep',
+        'dub techno',
+        'dubstep',
+        'ebm',
+        'edm',
+        'edm trap',
+        'electro',
+        'electro swing', # lol
+        'electroclash',
+        'electronic',
+        'electronica',
+        'eurodance',
+        'footwork',
+        'freestyle',
+        'french house',
+        'funky house',
+        'future bass',
+        'g-house',
+        'glitch',
+        'hard house',
+        'hard techno',
+        'hi-nrg',
+        'house',
+        'idm', # 'intelligent dance music'. strong candidate for wankiest genre name
+        'indie dance',
+        'industrial',
+        'italo dance',
+        'italo disco',
+        'jazz house',
+        'jersey club',
+        'jungle',
+        'lo-fi house',
+        'minimal techno',
+        'moombahton',
+        'new rave',
+        'nu disco',
+        'post-disco',
+        'rally house',
+        'stutter house',
+        'synthwave',
+        'tech house',
+        'techno',
+        'trance',
+        'tropical house',
+        'uk garage',
+    ],
 
+    'JAZZ':
+    [
+        'acid jazz',
+        'bebop',
+        'brazilian jazz',
+        'cool jazz',
+        'ethiopian jazz',
+        'free jazz',
+        'french jazz',
+        'hard bop',
+        'indie jazz',
+        'jazz',
+        'jazz fusion',
+        'nu jazz',
+        'smooth jazz',
+        'swing music',
+        'vocal jazz',
+    ],
+
+    'ROCK':
+    [
+        'acid rock',
+        'alternative rock',
+        'art rock',
+        'anatolian rock',
+        'aor', # 'album oriented rock'
+        'argentine rock',
+        'blues rock',
+        'brazilian rock',
+        'classic rock',
+        'country rock',
+        'deathrock',
+        'folk rock',
+        'garage rock',
+        'glam rock',
+        'gothic rock',
+        'hard rock',
+        'indie rock',
+        'industrial rock',
+        'krautrock',
+        'lovers rock',
+        'madchester',
+        'math rock',
+        'neo-psychedelic',
+        'neue deutsche welle',
+        'new wave',  # terribly defined genre. music that links punk and post punk. includes the jam, talking heads, ian dury. rock feels closest
+        'noise rock',
+        'post-hardcore',
+        'post-rock',
+        'progressive rock',
+        'psychedelic rock',
+        'rock',
+        'rock and roll',
+        'rockabilly',
+        'roots rock',
+        'slowcore',
+        'soft rock',
+        'southern rock',
+        'space rock',
+        'stoner rock',
+        'surf rock',
+        'yacht rock',
+    ],
+
+    'MISC':
+    [
+        'adult standards',
+        'ambient',
+        'avant-garde',
+        'big band',
+        'celtic', # better place for this? only really affects one song so not a huge deal
+        'chanson',  # french lyric-driven
+        'christmas', # lol
+        'comedy',
+        'easy listening',
+        'exotica',  # ??
+        'experimental',
+        'german indie',
+        'hardcore',  # too poorly defined to be useful. includes hardcore punk, hiphop, and the specific subgenre of edm that just goes by hardcore
+        'indian indie',
+        'indie',
+        'italian singer-songwriter',
+        'jam band',
+        'japanese indie',
+        'lo-fi indie',
+        'lounge',
+        'maluku',  # catch all for indonesian music (specifically from maluku islands)
+        'musicals',
+        'singer-songwriter',
+        'soundtrack',
+        'spoken word',
+        'vaporwave', # idk where else to put this
+        'variété française',
+        'worship',
+    ],
+
+    'AFRICAN':
+    [
+        'afro adura',
+        'afrobeat',
+        'afrobeats',
+        'afropiano',
+        'afropop',
+        'afroswing',
+        'alté',
+        'amapiano',
+        'asakaa',  # ghanaian drill? in my playlists it only appears on one boj song, due to a feature
+        'azonto', # ghanaian dance/hiphop. 
+        'bikutsi',
+        'hiplife',  # ghanaian (hiphop/ghanaian highlife apparently)
+        'gnawa', # morrocan religious songs
+        'highlife',
+        'raï',  # algerian
+        'rumba congolaise',  # rep. congo/drc dance
+    ],
+
+    'FOLK/COUNTRY':
+    [   
+        # COUNTRY
+        'alt country',
+        'classic country',
+        # FOLK
+        'anti-folk',
+        'ambient folk',
+        'americana', # i guess??
+        'bluegrass',
+        'folk',
+        'newgrass',
+        'traditional folk',
+    ],
+
+    'SOUL':
+    [
+        'afro soul',
+        'cajun',  # not really but i have to put it somewhere
+        'classic soul',
+        'gospel',  # lol yes ok
+        'indie soul',
+        'motown',
+        'northern soul',
+        'philly soul',
+        'retro soul',
+        'soul',
+        'soul blues',
+        'soul jazz',
+        'southern gospel',
+    ],
+    'BLUES':
+    [
+        'blues',
+        'boogie-woogie',
+        'zydeco',
+        'classic blues',
+        'country blues',
+        'doo-wop',
+        'jazz blues',
+        'modern blues',
+    ],
+
+    'HIP-HOP':
+    [
+        'alternative hip hop',
+        'aussie drill',
+        'boom bap',
+        'chinese hip hop',
+        'cloud rap',
+        'crunk',
+        'drill',
+        'east coast hip hop',
+        'emo rap',
+        'experimental hip hop',
+        'french rap',
+        'g-funk',
+        'gangster rap',
+        'german hip hop',
+        'ghanaian hip hop',
+        'grime',
+        'hardcore hip hop',
+        'hip hop',
+        'hip house',
+        'horrorcore',
+        'hyphy',
+        'jazz beats',
+        'jazz rap',
+        'lo-fi', # need to check this one TODO
+        'lo-fi beats',
+        'lo-fi hip hop',
+        'melodic rap',
+        'mexican hip hop',
+        'miami bass',
+        'midwest emo',
+        'new orleans bounce',
+        'nigerian drill',
+        'old school hip hop',
+        'rap',
+        'rap rock',
+        'sexy drill',
+        'southern hip hop',
+        'trap soul',
+        'trip hop',
+        'uk drill',
+        'uk grime',
+        'underground hip hop',
+        'west coast hip hop',
+    ],
+
+    'R&B':
+    [
+        'afro r&b',
+        'alternative r&b',
+        'contemporary r&b',
+        'dark r&b',
+        'french r&b',
+        'gospel r&b',
+        'indie r&b',
+        'neo soul',
+        'quiet storm',
+        'r&b',
+        'uk r&b',
+    ],
+
+    'POP':
+    [
+        'art pop',
+        'baroque pop',
+        'bedroom pop',
+        'brazilian pop',
+        'britpop',
+        'chillwave', # loose genre idk
+        'dream pop',
+        'electropop',
+        'flamenco pop',
+        'french indie pop',
+        'french pop',
+        'german indie pop',
+        'german pop',
+        'hyperpop',
+        'indie pop',
+        'jangle pop',
+        'nederpop', # dutch pop
+        'new jack swing',
+        'pop',
+        'pop soul',
+        'pop urbaine',
+        'power pop',
+        'retro pop',
+        'schlager',  # european pop that makes u smile
+        'synthpop',
+    ],
+
+    'LATIN':
+    [
+        'axé',
+        'bossa nova',
+        'bolero', # spanish (rita payes)
+        'candombe',  # uruguayan 
+        'cha cha cha', # cuban 1950s dance
+        'chicha',  # peruvian 60s
+        'cumbia', # colombian folk(?). or maybe mexican
+        'cumbia sonidera',  # mexican cumbia
+        'electrocumbia',
+        'fado',  # portuguese traditional? mournful
+        'flamenco',
+        'latin',
+        'latin alternative',
+        'latin folk',
+        'latin folklore',
+        'latin hip hop',
+        'latin indie',
+        'latin jazz',
+        'latin pop',
+        'latin rock',
+        'mariachi',
+        'merengue',  # dominican republic. dance? in 2/4
+        'mexican indie',
+        'mpb', # musican popular brasileira 🇧🇷
+        'música mexicana',
+        'nova mpb',
+        'pagode', # brazillian 70s/80s
+        'ranchera', # traditional mexican
+        'salsa',
+        'samba',
+        'son cubano',
+        'tango',
+        'tejano',
+        'trova',  # cuban
+        'villancicos',  # spanish/portuguese folk
+    ],
+
+    'METAL':
+    [
+        'black metal',
+        'djent',
+        'drone metal',
+        'glam metal',
+        'progressive metal',
+        'sludge metal',
+    ],
+
+    'CARRIBEAN':
+    [
+        'calypso',
+        'dub',
+        'ragga',
+        'reggae',
+        'rocksteady', # jamaican 60s
+        'roots reggae',
+        'ska',  # i guess? none of the ska i listen to is very carribean but it is a carribean genre lol
+    ],
+
+    'PUNK':
+    [
+        'celtic punk',
+        'cold wave',
+        'darkwave',
+        'egg punk',
+        'emo',
+        'folk punk',
+        'hardcore punk',
+        'horror punk',
+        'indie punk',
+        'mathcore',  # v metaly but im putting it in here to boost punks numbers because i prefer that genre hehe
+        'post-punk',
+        'proto-punk',
+        'punk',
+        'queercore',
+        'riot grrrl',
+        'ska punk',
+    ],
+
+    'EAST ASIAN':
+    [
+        # realistically just japan
+        'anime',
+        'city pop',
+        'j-pop', # these are all pushing it, but i feel like the songs they represent have a distinct enough sound to justify a separate group
+        'j-r&b',
+        'j-rap',
+        'j-rock',
+        'kayokyoku',
+        'shibuya-kei',
+    ],
+
+    'CLASSICAL':
+    [
+        'classical',
+        'classical piano',
+        'medieval',
+        'opera',
+        'orchestral',
+    ],
+
+    'FUNK':
+    [
+        'funk',
+        'funk melody',
+        'funk pop',
+        'funk rock',
+        'jazz funk',
+        'liquid funk',
+        'uk funky',
+    ]
+}
+
+supergenre_map = {}
+for genre, lst in supergenre_lists.items():
+    for subgenre in lst:
+        supergenre_map[subgenre] = genre
 
 class MonthlyPlaylistHandler:
     '''
@@ -67,6 +506,10 @@ class MonthlyPlaylistHandler:
     '''
     
     data_dir = DATA_DIR
+
+    supergenre_lists = supergenre_lists
+    supergenre_map = supergenre_map
+
     
     def __init__(self, spotify_client:spotipy.Spotify = None):
         '''
@@ -766,7 +1209,7 @@ class MonthlyPlaylistHandler:
         return df_pl.reset_index().set_index('date')['id'].to_dict()
     
     @property
-    def genres(self) -> set:
+    def genres(self) -> np.ndarray:
         '''
         Set of genres present in all monthly playlists
 
@@ -776,6 +1219,10 @@ class MonthlyPlaylistHandler:
             A set of all genres present in all monthly playlists.
         '''
         return np.array(list(set(genre for genres in self.df_tracks['track_artist_genres'] for genre in eval(genres))))
+
+    @property
+    def supergenres(self) -> np.ndarray:
+        return np.array(list(self.supergenre_lists.keys()))
 
     @property
     def artists(self) -> np.ndarray:
@@ -788,7 +1235,18 @@ class MonthlyPlaylistHandler:
             An array of all artists present in all monthly playlists.
         '''
         return self.df_tracks['track_artist'].unique()
-        
+
+    @property
+    def artist_counts(self) -> pd.Series:
+        '''
+        Series of artist name: number of times that artist appears in `df_tracks`.
+
+        Returns
+        -------
+        pd.Series
+        '''
+        return self.df_tracks['track_artist'].value_counts()
+
     @property
     def dates(self) -> np.ndarray:
         '''
@@ -804,15 +1262,203 @@ class MonthlyPlaylistHandler:
     @property
     def artist_timeseries(self) -> pd.DataFrame:
         '''
-        A dataframe with index of all artists present in the data, and columns of playlist dates, with
-        data showing how many tracks by/featuring that artist are present in the given months playlist
+        A dataframe with index of playlist dates, and columns of artists, with
+        values showing how many tracks by/featuring that artist are present in the given months playlist.
 
         Returns
         -------
         pd.DataFrame
         '''
-        raise NotImplementedError()
+        df = self.df_tracks.groupby('playlist_id')['track_artist'].value_counts().reset_index().pivot(
+            columns = 'track_artist', index = 'playlist_id',values = 'count'
+        ).fillna(0)
+
+        df.index = df.index.map(self.ids_to_dates).set_names('playlist_date')
+        return df.sort_index()
+    
+    def tracks_with_artist_genre(self, genre, comparison_type = 'exact', *, supergenre = False):
+        '''
+        Get all tracks in the monthly playlists that have a given artist genre. The artist genre can
+        be a genre (default) or, if `supergenre = True`, a supergenre as specified in `supergenre_lists`.
+
+        Parameters
+        ----------
+        genre : str
+            The genre to search for. Should be one of the available genres (see `genres`) or 
+            a supergenre (`supergenres`).
+        comparison_type : {'exact', 'like'}
+            How to compare the given genre string to the genre list. Defaults to 'exact'. Ignored when `supergenre = True`
+            - 'exact': Only return tracks with an exact match of the given genre.
+            - 'like': Return any track where `genre` is a substring of one or more of the track's artist genres.
+                      Useful for finding similar genres (e.g. 'hip-hop' and 'old school hip-hop')
+        supergenre : bool, optional
+            Whether or not the given genre should be interpreted as a supergenre. Defaults to False.
+        '''
+        if supergenre:
+            find_fn = lambda x: genre.upper() in [self.supergenre_map[i] for i in x]
+        else:
+            if comparison_type == 'exact':
+                find_fn = lambda x: genre.lower() in x
+            elif comparison_type == 'like':
+                find_fn = lambda x: genre.lower() in ','.join(x)
+
+        return self.df_tracks.loc[self.df_tracks['track_artist_genres'].apply(find_fn)]
         
+    def n_tracks_with_artist_genre(self, genre, comparison_type = 'exact', supergenre = False):
+        '''
+        The number of tracks in the monthly playlists that have a given artist genre. The artist genre can
+        be a genre (default) or, if `supergenre = True`, a supergenre as specified in `supergenre_lists`.
+
+        Parameters
+        ----------
+        genre : str
+            The genre to search for. Should be one of the available genres (see `genres`) or 
+            a supergenre (`supergenres`).
+        comparison_type : {'exact', 'like'}
+            How to compare the given genre string to the genre list. Defaults to 'exact'. Ignored when `supergenre = True`
+            - 'exact': Only return tracks with an exact match of the given genre.
+            - 'like': Return any track where `genre` is a substring of one or more of the track's artist genres.
+                      Useful for finding similar genres (e.g. 'hip-hop' and 'old school hip-hop')
+        supergenre : bool, optional
+            Whether or not the given genre should be interpreted as a supergenre. Defaults to False.
+        '''
+        return self.tracks_with_artist_genre(genre, comparison_type, supergenre = supergenre).groupby('track_index').ngroups
+    
+    @property
+    def genre_track_counts(self):
+        '''
+        Get the number of tracks of each genre.
+
+        Returns
+        -------
+        pd.Series
+            Series of track counts indexed by genre names
+        '''
+        return pd.Series({genre: self.n_tracks_with_artist_genre(genre, 'exact') for genre in self.genres}).sort_values(ascending=False)
+    
+    @property
+    def supergenre_track_counts(self):
+        '''
+        Get the number of tracks of each supergenre, as defined in `supergenre_lists`.
+
+        Returns
+        -------
+        pd.Series
+            Series of track counts indexed by supergenre names
+        '''
+        return pd.Series({genre: self.n_tracks_with_artist_genre(genre, 'exact', supergenre=True) for genre in self.supergenres}).sort_values(ascending=False)
+
+    def plot_supergenres(self,
+                    highlight = 'funk', 
+                    xaxis_pad = pd.Timedelta('30D')):
+        
+
+        ################################################## FLATTEN ARTIST GENRES ##################################################
+
+        track_cols = [  # excluding columns that specify artists in the aggregation
+            'track_names',  
+            'track_date_added',
+            'playlist_id',
+            'playlist_name',
+            'track_index',
+            'track_album',
+            'track_release_date',
+            'track_release_date_precision',
+            'track_duration',
+            'track_popularities',
+            'track_external_ids',
+            'track_spid'
+        ]
+
+        df_tracks = self.df_tracks
+        df_tracks['track_artist_genres'] = df_tracks['track_artist_genres'].apply(lambda x: eval(x) if isinstance(x, str) else x)
+
+        df_tracks = df_tracks.groupby(track_cols).agg({
+            'track_artist_genres' : lambda x: list(set(x.sum())),
+            'track_artist': lambda x: x.to_list(),
+            'track_artist_spid' : lambda x: x.to_list(),
+            'track_artist_popularity' : lambda x: x.to_list(),
+        }).sort_index(
+            level = 'track_date_added', 
+            ascending=False
+        ).reset_index()
+
+
+        ###################################################### ONE HOT ENCODE ######################################################    
+        genres = sorted(list(self.supergenre_lists.keys()))
+        agg_fn = lambda x: genre in [self.supergenre_map[i] for i in x]
+
+        cols = []
+        for genre in genres:
+            ser = df_tracks['track_artist_genres'].apply(agg_fn)
+            ser.name = genre
+            cols.append(ser)
+            
+        df_tracks = pd.concat([df_tracks, pd.concat(cols, axis = 1)], axis = 1)
+
+
+        ######################################################## SUM BY MONTH ########################################################    
+
+        # genre sums in each playlist
+        df_genres = df_tracks.groupby('playlist_id')[genres].agg(lambda x: sum(x))  # /len(x))  # no percentages!
+        df_genres.index = df_genres.index.map(self.ids_to_dates).set_names('playlist_date')
+        df_genres.sort_index(inplace=True)
+
+        ############################################### CALCULATE RANKS IN EACH MONTH ###############################################    
+        df_rank = df_genres.replace(0, pd.NA).rank(
+            ascending=False, 
+            method = 'first', 
+            na_option='keep',
+            axis = 1
+        ).sort_values(
+            axis = 1, 
+            by = df_genres.index.values[1],
+            ascending=True
+        )
+        
+        ########################################################### PLOT ###########################################################    
+        fig, ax = plt.subplots(figsize = (20,5))
+        cmap = plt.get_cmap('tab20')
+
+        for i, col in enumerate(df_rank):
+            if col == highlight.upper():
+                ax.plot(
+                    df_rank[col], 
+                    color = 'r', 
+                    label = col,
+                    linestyle = 'None', 
+                    marker = 'o',
+                )
+            else:
+                ax.plot(
+                    df_rank[col], 
+                    color = cmap(i), 
+                    label = col, 
+                    alpha = 0.7,
+                    linestyle = 'None', 
+                    marker = 'x'
+                )
+
+        ax.set_yticks(range(1,19))
+
+
+        ax.set_xlim(df_genres.index.min() - xaxis_pad, df_genres.index.max() + xaxis_pad)
+        ax.invert_yaxis()
+        ax.legend(bbox_to_anchor = (1, 0.95), title = 'Genres')
+        #ax.set_title('Genre ranking timeseries')
+        ax.set_xlabel('Month')
+        ax.set_ylabel('Rank')
+        fig.set_constrained_layout(True)
+
+        # set axis box off
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['bottom'].set_visible(False)
+        ax.spines['left'].set_visible(False)
+
+        ax.xaxis.set_minor_locator(m_dates.MonthLocator())
+
+        plt.show()    
 
 class LoggingSpotifyClient(spotipy.Spotify):
     '''
@@ -1030,20 +1676,21 @@ class MonthlyPlaylist:
                 return 'name'
             
     @property
-    def track_data(self):
+    def df_tracks(self):
         df_tracks = MonthlyPlaylistHandler().read_tracks()
+        df_tracks['track_artist_genres'] = df_tracks['track_artist_genres'].apply(lambda x: eval(x))
         return df_tracks.loc[df_tracks['playlist_id'] == self.sp_id]
 
     def __getitem__(self, key):
-        return self.track_data[key]
+        return self.df_tracks[key]
     
     @property
     def loc(self):
-        return self.track_data.loc
+        return self.df_tracks.loc
     
     @property
     def genres(self):
-        return set(self['track_artist_genres'].apply(lambda x: eval(x)).sum())
+        return set(self['track_artist_genres'].sum())
     
     @property
     def artists(self):
@@ -1055,21 +1702,26 @@ class MonthlyPlaylist:
     
     def tracks_with_artist_genre(self, genre, comparison_type = 'exact'):
         if comparison_type == 'exact':
-            return self.loc[self['track_artist_genres'].apply(lambda x: genre in ','.join(x))]
-        elif comparison_type == 'like':
             return self.loc[self['track_artist_genres'].apply(lambda x: genre in x)]
+        elif comparison_type == 'like':
+            return self.loc[self['track_artist_genres'].apply(lambda x: genre in ','.join(x))]
     
     def tracks_with_artist(self, artist_name):
         return self.loc[self['track_artist'].str.lower() == artist_name.lower()]
 
     def n_tracks_with_artist_genre(self, genre, comparison_type = 'exact'):
-        return self.tracks_with_artist_genre(genre, comparison_type).shape[0]
+        return self.tracks_with_artist_genre(genre, comparison_type).groupby('track_index').ngroups
 
     def n_tracks_with_artist(self, artist_name):
         return self.tracks_with_artist(artist_name).shape[0]
 
-    def genre_track_counts(self, comparison_type:str = 'exact'):
-        return {genre: self.n_tracks_with_artist_genre(genre, comparison_type) for genre in self.genres}
+    def genre_track_counts(self, genres = None):
+        '''
+        Get the number of tracks
+        '''
+        if genres is None:
+            genres = self.genres
+        return {genre: self.n_tracks_with_artist_genre(genre, 'exact') for genre in genres}
 
     @property
     def cover_img_filepath(self):
