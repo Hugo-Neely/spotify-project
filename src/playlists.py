@@ -83,6 +83,7 @@ class MonthlyPlaylistHandler:
     playlists_file = os.path.join(data_dir, 'playlists.csv')
     tracks_file = os.path.join(data_dir, 'tracks.csv')
     artists_file = os.path.join(data_dir, 'artists.csv')
+    artist_genres_file = os.path.join(data_dir, 'artist_genres.csv')
 
     year_styles = {
         "2018":"2018",
@@ -427,9 +428,8 @@ class MonthlyPlaylistHandler:
 
             df_playlist = pd.DataFrame(playlist_data).set_index('id')
             df_playlist['date_added'] = pd.to_datetime(df_playlist['date_added'])
-            df_playlist_fname = f"mpl_{playlist_metadata['date'].year}_{playlist_metadata['date'].month:02d}.csv"
             df_playlist.to_csv(
-                os.path.join(self.data_dir, 'mpls', df_playlist_fname),
+                self.playlist_file(playlist_id),
                 index = True
             )
 
@@ -458,12 +458,23 @@ class MonthlyPlaylistHandler:
         
         df_artists = pd.DataFrame(artist_data).set_index('id')
         
+        # save metadata
+        df_artists.drop(columns = ['genres']).to_csv(
+            self.artists_file,
+            index = True
+        )
+        
         genre_cols = []
         for genre in genres:
             genre_col = df_artists.loc[:, 'genres'].apply(lambda x: genre in x)
             genre_col.name = genre
             genre_cols.append(genre_col)
-        df_artists = pd.concat([df_artists.drop(columns = ['genres']), pd.concat(genre_cols, axis = 1)], axis = 1)
+        
+        # melt into three columns: id, genre, present. long and thin table.
+        df_artists = pd.concat(
+            [df_artists.drop(columns = ['name', 'genres', 'popularity']), pd.concat(genre_cols, axis = 1)], 
+            axis = 1
+        ).melt(ignore_index=False, var_name='genre', value_name='present')
 
         df_tracks = pd.DataFrame(track_data).set_index('id')
 
@@ -479,11 +490,11 @@ class MonthlyPlaylistHandler:
         df_tracks['release_date'] = pd.to_datetime(df_tracks['release_date'].apply(format_release_date), format = r'%Y-%m-%d')
 
         df_tracks.to_csv(
-            os.path.join(self.data_dir, 'tracks.csv'),
+            self.tracks_file,
             index=True
         )
         df_artists.to_csv(
-            os.path.join(self.data_dir, 'artists.csv'),
+            self.artist_genres_file,
             index=True
         )
 
@@ -551,10 +562,43 @@ class MonthlyPlaylistHandler:
         pandas.DataFrame
             DataFrame containing artist information (genres and popularities).
         '''
-        if not os.path.isfile(self.playlists_file):
-            raise FileNotFoundError('playlists.csv not found. Try downloading data with the `.download` method.')
+        if not os.path.isfile(self.artists_file):
+            raise FileNotFoundError('artists.csv not found. Try downloading data with the `.download` method.')
 
         return pd.read_csv(self.artists_file, index_col='id')
+
+    @property
+    def df_artist_genres(self) -> pd.DataFrame:
+        '''
+        Convenience property to read the artists data from csv to DataFrame.
+
+        Returns
+        -------
+        pandas.DataFrame
+            DataFrame containing artist information (genres and popularities).
+        '''
+        if not os.path.isfile(self.artist_genres_file):
+            raise FileNotFoundError('artist_genres.csv not found. Try downloading data with the `.download` method.')
+
+        return pd.read_csv(self.artist_genres_file, index_col='id')  
+
+    def playlist_file(self, identifier:Union[str, datetime.date]) -> str:
+        '''
+        Filepath for the playlist csv corresponding to the given identifier as a DataFrame. 
+
+        Parameters
+        ----------
+        identifier : str or datetime.date
+            The identifier of the playlist - either a spotify playlist ID, date, or playlist name.
+        
+        Returns
+        -------
+        str
+            Filepath of the playlist csv.
+        '''
+        date = self.convert_playlist_identifier(identifier, 'date')
+
+        return os.path.join(self.mpl_dir, f'mpl_{date.year}_{date.month:02d}.csv')
 
     def df_playlist(self, identifier:Union[str, datetime.date] = None) -> pd.DataFrame:
         '''
@@ -571,10 +615,8 @@ class MonthlyPlaylistHandler:
             DataFrame containing the track ids in the playlist and the date they were added.
         '''
         
-        date = self.convert_playlist_identifier(identifier, 'date')
-
         return pd.read_csv(
-            os.path.join(self.mpl_dir, f'mpl_{date.year}_{date.month:02d}.csv'), 
+            self.playlist_file(identifier), 
             index_col='id'
         )
     
