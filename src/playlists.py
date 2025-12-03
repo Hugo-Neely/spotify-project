@@ -704,7 +704,7 @@ class MonthlyPlaylistHandler:
                     FROM read_csv('{self.mpl_dir}/*.csv', filename = true)'''
             )
             df['playlist_id'] = df['playlist_id'].dt.date.map(self.playlist_dates_to_ids)
-            return df.set_index(['playlist_date','id'])
+            return df.set_index(['playlist_id','id'])
 
 
         filepath = self.playlist_file(identifier)
