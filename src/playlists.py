@@ -15,6 +15,9 @@ from tqdm import tqdm
 from .genres import supergenre_lists, supergenre_map
 import duckdb
 
+# warning begone 🪄
+pd.set_option('future.no_silent_downcasting', True)
+
 # max number of artists to be stored in tracks.csv. If a track has more artists than this, the getting function will error
 N_ARTISTS_MAX = 10
 
@@ -478,6 +481,7 @@ class MonthlyPlaylistHandler:
             [df_artists.drop(columns = ['name', 'genres', 'popularity']), pd.concat(genre_cols, axis = 1)], 
             axis = 1
         ).melt(ignore_index=False, var_name='genre', value_name='present')
+        df_artists = df_artists.loc[df_artists['present'], 'genre']  # only keep genres that are present, and remove the present column
 
         df_tracks = pd.DataFrame(track_data).set_index('id')
 
@@ -658,7 +662,7 @@ class MonthlyPlaylistHandler:
         '''
         self.check_downloaded(self.artist_genres_file)
 
-        return pd.read_csv(self.artist_genres_file, index_col='id')  
+        return pd.read_csv(self.artist_genres_file, index_col='id').pivot(columns = 'genre', values = 'genre').map(lambda x: True, na_action='ignore').fillna(False).infer_objects(copy=False)
 
     def playlist_file(self, identifier:Union[str, datetime.date]) -> str:
         '''
@@ -1093,6 +1097,11 @@ class MonthlyPlaylistHandler:
         values showing how many tracks by/featuring artists with that genre are in that month's playlist.
         Uses a duckdb backend.
 
+        Parameters
+        ----------
+        supergenre : bool
+            Whether to aggregate genres into supergenres. Defaults to False.
+
         Returns
         -------
         pd.DataFrame
@@ -1107,8 +1116,8 @@ class MonthlyPlaylistHandler:
 
         artists AS (
             SELECT id, 
-                {"getvariable('genre_map')[genre] as" if supergenre else ''} genre, 
-                present
+                {"getvariable('genre_map')[genre] as " if supergenre else ''}genre, 
+                true as present
             FROM read_csv('{self.artist_genres_file}')
         ),
         '''
