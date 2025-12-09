@@ -15,3 +15,4 @@ pytest
 tqdm
 statsmodels
 scikit-learn
+duckdb

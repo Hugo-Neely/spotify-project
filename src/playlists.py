@@ -818,6 +818,9 @@ class MonthlyPlaylistHandler:
             if identifier[:2] == '20' and identifier.count('-') == 2 and len(identifier) in (8, 9, 10):
                 date_split = identifier.split('-')
                 return 'date', datetime.date(int(date_split[0]), int(date_split[1]), int(date_split[2]))
+            elif identifier[:2] == '20' and identifier.count('-') == 1 and len(identifier) in (6, 7):
+                date_split = identifier.split('-')
+                return 'date', datetime.date(int(date_split[0]), int(date_split[1]), 1)
             elif identifier in self.playlist_ids:
                 return 'id', identifier
             else:
@@ -968,7 +971,7 @@ class MonthlyPlaylistHandler:
         numpy.ndarray
             Array of all genres present in all monthly playlists.
         '''
-        return self.df_artists.drop(columns = ['name', 'popularity']).columns.to_numpy()
+        return self.df_artist_genres.columns.to_numpy()
 
     @property
     def supergenres(self) -> np.ndarray:
@@ -1073,8 +1076,8 @@ class MonthlyPlaylistHandler:
 
         playlist_artist_count as (
         SELECT 
-            playlist_date, 
-            name
+            p.playlist_date, 
+            a.name
         FROM playlist_artist_stack p
         JOIN artists a
         ON a.id = p.artist
@@ -1174,7 +1177,7 @@ class MonthlyPlaylistHandler:
 
         return df.set_index('playlist_date').sort_index()
     
-    def tracks_with_artist_genre(self, genre, comparison_type = 'exact', *, supergenre = False):
+    def tracks_with_artist_genre(self, genre, *, search_within_strings = False, playlist = None, supergenre = False):
         '''
         Get all tracks in the monthly playlists that have a given artist genre. The artist genre can
         be a genre (default) or, if `supergenre = True`, a supergenre as specified in `supergenre_lists`.
@@ -1184,25 +1187,83 @@ class MonthlyPlaylistHandler:
         genre : str
             The genre to search for. Should be one of the available genres (see `genres`) or 
             a supergenre (`supergenres`).
-        comparison_type : {'exact', 'like'}
-            How to compare the given genre string to the genre list. Defaults to 'exact'. Ignored when `supergenre = True`
-            - 'exact': Only return tracks with an exact match of the given genre.
-            - 'like': Return any track where `genre` is a substring of one or more of the track's artist genres.
-                      Useful for finding similar genres (e.g. 'hip-hop' and 'old school hip-hop')
+        search_within_strings : bool
+            If True, will return tracks whose genre contains the given genre text (LIKE '%genre%'),
+            rather than only exact matches. Useful for identifying subgenres.
+        playlist : str or datetime.date, optional
+            A playlist identifier specifying the playlist to search through. 
+            If given, will only return matches that are in the corresponding playlist.
         supergenre : bool, optional
             Whether or not the given genre should be interpreted as a supergenre. Defaults to False.
         '''
-        if supergenre:
-            find_fn = lambda x: genre.upper() in [self.supergenre_map[i] for i in x]
+        if playlist is not None:
+            pl_date = self.convert_playlist_identifier(playlist, 'date')
+            pl_fname = f'mpl_{pl_date.year}_{pl_date.month:02d}.csv'
         else:
-            if comparison_type == 'exact':
-                find_fn = lambda x: genre.lower() in x
-            elif comparison_type == 'like':
-                find_fn = lambda x: genre.lower() in ','.join(x)
+            pl_fname = '*.csv'
 
-        return self.df_tracks.loc[self.df_tracks['track_artist_genres'].apply(find_fn)]
+        sql_text = f'''{f'SET VARIABLE genre_map = MAP {self.supergenre_map};' if supergenre else ''}
         
-    def n_tracks_with_artist_genre(self, genre, comparison_type = 'exact', supergenre = False):
+        WITH tracks AS (
+            SELECT *
+            FROM read_csv('{self.tracks_file}')
+        ),
+
+        artists AS (
+            SELECT id, 
+                {"getvariable('genre_map')[genre] as " if supergenre else ''}genre
+            FROM read_csv('{self.artist_genres_file}')
+            WHERE genre {f"LIKE '%{genre}%'" if search_within_strings else f" = '{genre}'"} 
+        ),
+        '''
+
+        for i in range(10):
+            sql_text += f'''artist_genres_{i+1} AS (
+                        SELECT 
+                            t.id as track_id, 
+                            t.* EXCLUDE id,
+                            a.genre
+                        FROM tracks t
+                        INNER JOIN artists a
+                            ON t.artist_{i+1} = a.id 
+                        ),
+            
+            '''
+                
+        sql_text += f'''artist_genres AS (
+                            SELECT * FROM artist_genres_1
+                            UNION SELECT * FROM artist_genres_2
+                            UNION SELECT * FROM artist_genres_3
+                            UNION SELECT * FROM artist_genres_4
+                            UNION SELECT * FROM artist_genres_5
+                            UNION SELECT * FROM artist_genres_6
+                            UNION SELECT * FROM artist_genres_7
+                            UNION SELECT * FROM artist_genres_8
+                            UNION SELECT * FROM artist_genres_9
+                            UNION SELECT * FROM artist_genres_10
+                        )
+
+                        
+                        SELECT 
+                            strptime(pls.playlist_date, '%Y_%m_%d') as playlist_id, 
+                            ag.*
+                        FROM (
+                            SELECT 
+                                track, 
+                                CONCAT(filename[65:71],'_01') as playlist_date 
+                            FROM read_csv('{self.mpl_dir}/{pl_fname}', filename = true)
+                        ) pls
+                        INNER JOIN artist_genres ag
+                        ON pls.track = ag.track_id
+                        '''
+        
+        # quack
+        df = self.sql(sql_text).convert_dtypes()
+        df['playlist_id'] = df['playlist_id'].dt.date.map(self.playlist_dates_to_ids)
+
+        return df.set_index(['playlist_id', 'track_id']).sort_index()
+        
+    def n_tracks_with_artist_genre(self, genre, *, distinct = False, search_within_strings = False, playlist = None, supergenre = False):
         '''
         The number of tracks in the monthly playlists that have a given artist genre. The artist genre can
         be a genre (default) or, if `supergenre = True`, a supergenre as specified in `supergenre_lists`.
@@ -1212,39 +1273,53 @@ class MonthlyPlaylistHandler:
         genre : str
             The genre to search for. Should be one of the available genres (see `genres`) or 
             a supergenre (`supergenres`).
-        comparison_type : {'exact', 'like'}
-            How to compare the given genre string to the genre list. Defaults to 'exact'. Ignored when `supergenre = True`
-            - 'exact': Only return tracks with an exact match of the given genre.
-            - 'like': Return any track where `genre` is a substring of one or more of the track's artist genres.
-                      Useful for finding similar genres (e.g. 'hip-hop' and 'old school hip-hop')
+        distinct : bool
+            If True, will not count repeats (e.g. if a track is in multiple playlists).
+        search_within_strings : bool
+            If True, will return tracks whose genre contains the given genre text (using LIKE '%genre%'),
+            rather than only exact matches. Useful for identifying subgenres.
+        playlist : str or datetime.date, optional
+            A playlist identifier specifying the playlist to search through. 
+            If given, will only count matches that are in the corresponding playlist.
         supergenre : bool, optional
             Whether or not the given genre should be interpreted as a supergenre. Defaults to False.
         '''
-        return self.tracks_with_artist_genre(genre, comparison_type, supergenre = supergenre).groupby('track_index').ngroups
+        df = self.tracks_with_artist_genre(
+            genre, 
+            search_within_strings=search_within_strings, 
+            playlist = playlist,
+            supergenre = supergenre
+        )
+        if distinct:
+            return df.groupby('track_id').ngroups
+        else:
+            return df.groupby(['playlist_id', 'track_id']).ngroups
     
-    @property
-    def genre_track_counts(self) -> pd.Series:
+    def genre_track_counts(self, distinct = False, playlist = None, supergenre = False) -> pd.Series:
         '''
         Get the number of tracks of each genre.
+
+        
+        Parameters
+        ----------
+        distinct : bool
+            If True, will not count repeats (e.g. if a track is in multiple playlists).
+        playlist : str or datetime.date, optional
+            A playlist identifier specifying the playlist to search through. 
+            If given, will only count matches that are in the corresponding playlist.
+        supergenre : bool, optional
+            Whether or not to use supergenres. Defaults to False.
 
         Returns
         -------
         pd.Series
             Series of track counts indexed by genre names
         '''
-        return pd.Series({genre: self.n_tracks_with_artist_genre(genre, 'exact') for genre in self.genres}).sort_values(ascending=False)
-    
-    @property
-    def supergenre_track_counts(self) -> pd.Series:
-        '''
-        Get the number of tracks of each supergenre, as defined in `supergenre_lists`.
-
-        Returns
-        -------
-        pd.Series
-            Series of track counts indexed by supergenre names
-        '''
-        return pd.Series({genre: self.n_tracks_with_artist_genre(genre, 'exact', supergenre=True) for genre in self.supergenres}).sort_values(ascending=False)
+        # TODO: less silly implementation that doesn't take upwards of 40 seconds to run
+        if supergenre:
+            return pd.Series({genre: self.n_tracks_with_artist_genre(genre, distinct=distinct, playlist=playlist, supergenre=True) for genre in self.supergenres}, name = 'count').sort_values(ascending=False)
+        
+        return pd.Series({genre: self.n_tracks_with_artist_genre(genre, distinct=distinct, playlist=playlist) for genre in self.genres}, name = 'count').sort_values(ascending=False)
 
     @property
     def genres_not_in_supergenres(self) -> set:
@@ -1264,8 +1339,7 @@ class MonthlyPlaylistHandler:
 
         return set(self.genres) - set(genres)
 
-    @property
-    def artist_counts(self) -> pd.Series:
+    def artist_counts(self, playlist = None) -> pd.Series:
         '''
         Series of artist name: number of times that artist appears in `df_tracks`.
 
@@ -1273,7 +1347,80 @@ class MonthlyPlaylistHandler:
         -------
         pd.Series
         '''
-        return self.df_tracks['track_artist'].value_counts()
+        
+        if playlist is not None:
+            pl_date = self.convert_playlist_identifier(playlist, 'date')
+            pl_fname = f'mpl_{pl_date.year}_{pl_date.month:02d}.csv'
+        else:
+            pl_fname = '*.csv'
+
+
+        sql_text = f'''
+
+            WITH tracks AS (
+            SELECT id, artist_1, artist_2, artist_3, artist_4, artist_5, artist_6, artist_7, artist_8, artist_9, artist_10
+            FROM read_csv('{self.tracks_file}')
+            ),
+
+            playlists AS (
+            SELECT 
+                track, 
+                strptime(CONCAT(filename[65:71],'_01'), '%Y_%m_%d') as playlist_date 
+            FROM read_csv('{self.mpl_dir}/{pl_fname}', filename = true)
+            ),
+
+            playlist_artists as(
+            SELECT 
+                pls.playlist_date, 
+                tr.* EXCLUDE id
+            FROM playlists pls
+            LEFT JOIN tracks tr
+            ON tr.id = pls.track
+            ),
+
+            artists as(
+            SELECT id, name
+            FROM read_csv('{self.artists_file}')
+            ),
+
+            playlist_artist_stack as (
+                SELECT
+                    playlist_date,
+                    artist,
+                FROM playlist_artists
+                UNPIVOT (
+                    artist FOR artist_col IN (
+                        artist_1,
+                        artist_2,
+                        artist_3,
+                        artist_4,
+                        artist_5,
+                        artist_6,
+                        artist_7,
+                        artist_8,
+                        artist_9,
+                        artist_10
+                    )
+
+                )
+            )
+
+        
+            SELECT 
+                p.artist as id,
+                a.name,
+                p.track_count
+            FROM (
+                SELECT artist, COUNT(artist) as track_count
+                FROM playlist_artist_stack
+                GROUP BY artist
+            ) p
+            JOIN artists a
+            ON a.id = p.artist
+            '''
+
+        return self.sql(sql_text).convert_dtypes().set_index('id').sort_values('track_count', ascending=False)
+
 
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
     ################################### PLOTTING  ###################################

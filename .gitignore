@@ -8,3 +8,4 @@ data/imgs/*
 data/logs/*
 data/mpls/*
 data/*.csv
+prototyping.ipynb
