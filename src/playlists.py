@@ -12,14 +12,24 @@ import matplotlib.dates as m_dates
 import matplotlib.pyplot as plt
 import logging
 from tqdm import tqdm
-import json
+from .genres import supergenre_lists, supergenre_map
+import duckdb
+
+# warning begone 🪄
+pd.set_option('future.no_silent_downcasting', True)
+
+# max number of artists to be stored in tracks.csv. If a track has more artists than this, the getting function will error
+N_ARTISTS_MAX = 10
 
 # ensure data directory is set up as expected
 DATA_DIR = os.path.abspath('data')
 IMG_DIR = os.path.join(DATA_DIR, 'imgs')
 LOG_DIR = os.path.join(DATA_DIR, 'logs')
+MPL_DIR = os.path.join(DATA_DIR, 'mpls')
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
+if not os.path.exists(MPL_DIR):
+    os.makedirs(MPL_DIR)
 if not os.path.exists(IMG_DIR):
     os.makedirs(IMG_DIR)
 if not os.path.exists(LOG_DIR):
@@ -59,446 +69,6 @@ logger.addHandler(logger_fh)
 # logger_ch.setFormatter(logger_console_formatter)
 # logger.addHandler(logger_ch)
 
-supergenre_lists = {
-    # EDM//electronic//dance
-    'EDM':
-    [
-        'acid house',
-        'alternative dance',
-        'afro house', # afrobeats?
-        'afro tech',
-        'ballroom vogue',
-        'baltimore club',
-        'bass house',
-        'bassline',
-        'big beat',
-        'breakbeat',
-        'breakcore',
-        'chicago house',
-        'chillstep',
-        'dance',
-        'dancehall',
-        'deep house',
-        'disco house',
-        'disco', # DISCO - could just be part of above?
-        'downtempo',
-        'drum and bass',
-        'drumstep',
-        'dub techno',
-        'dubstep',
-        'ebm',
-        'edm',
-        'edm trap',
-        'electro',
-        'electro swing', # lol
-        'electroclash',
-        'electronic',
-        'electronica',
-        'eurodance',
-        'footwork',
-        'freestyle',
-        'french house',
-        'funky house',
-        'future bass',
-        'g-house',
-        'glitch',
-        'hard house',
-        'hard techno',
-        'hi-nrg',
-        'house',
-        'idm', # 'intelligent dance music'. strong candidate for wankiest genre name
-        'indie dance',
-        'industrial',
-        'italo dance',
-        'italo disco',
-        'jazz house',
-        'jersey club',
-        'jungle',
-        'lo-fi house',
-        'minimal techno',
-        'moombahton',
-        'new rave',
-        'nu disco',
-        'post-disco',
-        'rally house',
-        'stutter house',
-        'synthwave',
-        'tech house',
-        'techno',
-        'trance',
-        'tropical house',
-        'uk garage',
-    ],
-
-    'JAZZ':
-    [
-        'acid jazz',
-        'bebop',
-        'brazilian jazz',
-        'cool jazz',
-        'ethiopian jazz',
-        'free jazz',
-        'french jazz',
-        'hard bop',
-        'indie jazz',
-        'jazz',
-        'jazz fusion',
-        'nu jazz',
-        'smooth jazz',
-        'swing music',
-        'vocal jazz',
-    ],
-
-    'ROCK':
-    [
-        'acid rock',
-        'alternative rock',
-        'art rock',
-        'anatolian rock',
-        'aor', # 'album oriented rock'
-        'argentine rock',
-        'blues rock',
-        'brazilian rock',
-        'classic rock',
-        'country rock',
-        'deathrock',
-        'folk rock',
-        'garage rock',
-        'glam rock',
-        'gothic rock',
-        'hard rock',
-        'indie rock',
-        'industrial rock',
-        'krautrock',
-        'lovers rock',
-        'madchester',
-        'math rock',
-        'neo-psychedelic',
-        'neue deutsche welle',
-        'new wave',  # terribly defined genre. music that links punk and post punk. includes the jam, talking heads, ian dury. rock feels closest
-        'noise rock',
-        'post-hardcore',
-        'post-rock',
-        'progressive rock',
-        'psychedelic rock',
-        'rock',
-        'rock and roll',
-        'rockabilly',
-        'roots rock',
-        'slowcore',
-        'soft rock',
-        'southern rock',
-        'space rock',
-        'stoner rock',
-        'surf rock',
-        'yacht rock',
-    ],
-
-    'MISC':
-    [
-        'adult standards',
-        'ambient',
-        'avant-garde',
-        'big band',
-        'celtic', # better place for this? only really affects one song so not a huge deal
-        'chanson',  # french lyric-driven
-        'christmas', # lol
-        'comedy',
-        'easy listening',
-        'exotica',  # ??
-        'experimental',
-        'german indie',
-        'hardcore',  # too poorly defined to be useful. includes hardcore punk, hiphop, and the specific subgenre of edm that just goes by hardcore
-        'indian indie',
-        'indie',
-        'italian singer-songwriter',
-        'jam band',
-        'japanese indie',
-        'lo-fi indie',
-        'lounge',
-        'maluku',  # catch all for indonesian music (specifically from maluku islands)
-        'musicals',
-        'singer-songwriter',
-        'soundtrack',
-        'spoken word',
-        'vaporwave', # idk where else to put this
-        'variété française',
-        'worship',
-    ],
-
-    'AFRICAN':
-    [
-        'afro adura',
-        'afrobeat',
-        'afrobeats',
-        'afropiano',
-        'afropop',
-        'afroswing',
-        'alté',
-        'amapiano',
-        'asakaa',  # ghanaian drill? in my playlists it only appears on one boj song, due to a feature
-        'azonto', # ghanaian dance/hiphop. 
-        'bikutsi',
-        'hiplife',  # ghanaian (hiphop/ghanaian highlife apparently)
-        'gnawa', # morrocan religious songs
-        'highlife',
-        'raï',  # algerian
-        'rumba congolaise',  # rep. congo/drc dance
-    ],
-
-    'FOLK/COUNTRY':
-    [   
-        # COUNTRY
-        'alt country',
-        'classic country',
-        # FOLK
-        'anti-folk',
-        'ambient folk',
-        'americana', # i guess??
-        'bluegrass',
-        'folk',
-        'newgrass',
-        'traditional folk',
-    ],
-
-    'SOUL':
-    [
-        'afro soul',
-        'cajun',  # not really but i have to put it somewhere
-        'classic soul',
-        'gospel',  # lol yes ok
-        'indie soul',
-        'motown',
-        'northern soul',
-        'philly soul',
-        'retro soul',
-        'soul',
-        'soul blues',
-        'soul jazz',
-        'southern gospel',
-    ],
-    'BLUES':
-    [
-        'blues',
-        'boogie-woogie',
-        'zydeco',
-        'classic blues',
-        'country blues',
-        'doo-wop',
-        'jazz blues',
-        'modern blues',
-    ],
-
-    'HIP-HOP':
-    [
-        'alternative hip hop',
-        'aussie drill',
-        'boom bap',
-        'chinese hip hop',
-        'cloud rap',
-        'crunk',
-        'drill',
-        'east coast hip hop',
-        'emo rap',
-        'experimental hip hop',
-        'french rap',
-        'g-funk',
-        'gangster rap',
-        'german hip hop',
-        'ghanaian hip hop',
-        'grime',
-        'hardcore hip hop',
-        'hip hop',
-        'hip house',
-        'horrorcore',
-        'hyphy',
-        'jazz beats',
-        'jazz rap',
-        'lo-fi', # need to check this one TODO
-        'lo-fi beats',
-        'lo-fi hip hop',
-        'melodic rap',
-        'mexican hip hop',
-        'miami bass',
-        'midwest emo',
-        'new orleans bounce',
-        'nigerian drill',
-        'old school hip hop',
-        'rap',
-        'rap rock',
-        'sexy drill',
-        'southern hip hop',
-        'trap soul',
-        'trip hop',
-        'uk drill',
-        'uk grime',
-        'underground hip hop',
-        'west coast hip hop',
-    ],
-
-    'R&B':
-    [
-        'afro r&b',
-        'alternative r&b',
-        'contemporary r&b',
-        'dark r&b',
-        'french r&b',
-        'gospel r&b',
-        'indie r&b',
-        'neo soul',
-        'quiet storm',
-        'r&b',
-        'uk r&b',
-    ],
-
-    'POP':
-    [
-        'art pop',
-        'baroque pop',
-        'bedroom pop',
-        'brazilian pop',
-        'britpop',
-        'chillwave', # loose genre idk
-        'dream pop',
-        'electropop',
-        'flamenco pop',
-        'french indie pop',
-        'french pop',
-        'german indie pop',
-        'german pop',
-        'hyperpop',
-        'indie pop',
-        'jangle pop',
-        'nederpop', # dutch pop
-        'new jack swing',
-        'pop',
-        'pop soul',
-        'pop urbaine',
-        'power pop',
-        'retro pop',
-        'schlager',  # european pop that makes u smile
-        'synthpop',
-    ],
-
-    'LATIN':
-    [
-        'axé',
-        'bossa nova',
-        'bolero', # spanish (rita payes)
-        'candombe',  # uruguayan 
-        'cha cha cha', # cuban 1950s dance
-        'chicha',  # peruvian 60s
-        'cumbia', # colombian folk(?). or maybe mexican
-        'cumbia sonidera',  # mexican cumbia
-        'electrocumbia',
-        'fado',  # portuguese traditional? mournful
-        'flamenco',
-        'latin',
-        'latin alternative',
-        'latin folk',
-        'latin folklore',
-        'latin hip hop',
-        'latin indie',
-        'latin jazz',
-        'latin pop',
-        'latin rock',
-        'mariachi',
-        'merengue',  # dominican republic. dance? in 2/4
-        'mexican indie',
-        'mpb', # musican popular brasileira 🇧🇷
-        'música mexicana',
-        'nova mpb',
-        'pagode', # brazillian 70s/80s
-        'ranchera', # traditional mexican
-        'salsa',
-        'samba',
-        'son cubano',
-        'tango',
-        'tejano',
-        'trova',  # cuban
-        'villancicos',  # spanish/portuguese folk
-    ],
-
-    'METAL':
-    [
-        'black metal',
-        'djent',
-        'drone metal',
-        'glam metal',
-        'progressive metal',
-        'sludge metal',
-    ],
-
-    'CARRIBEAN':
-    [
-        'calypso',
-        'dub',
-        'ragga',
-        'reggae',
-        'rocksteady', # jamaican 60s
-        'roots reggae',
-        'ska',  # i guess? none of the ska i listen to is very carribean but it is a carribean genre lol
-    ],
-
-    'PUNK':
-    [
-        'celtic punk',
-        'cold wave',
-        'darkwave',
-        'egg punk',
-        'emo',
-        'folk punk',
-        'hardcore punk',
-        'horror punk',
-        'indie punk',
-        'mathcore',  # v metaly but im putting it in here to boost punks numbers because i prefer that genre hehe
-        'post-punk',
-        'proto-punk',
-        'punk',
-        'queercore',
-        'riot grrrl',
-        'ska punk',
-    ],
-
-    'EAST ASIAN':
-    [
-        # realistically just japan
-        'anime',
-        'city pop',
-        'j-pop', # these are all pushing it, but i feel like the songs they represent have a distinct enough sound to justify a separate group
-        'j-r&b',
-        'j-rap',
-        'j-rock',
-        'kayokyoku',
-        'shibuya-kei',
-    ],
-
-    'CLASSICAL':
-    [
-        'classical',
-        'classical piano',
-        'medieval',
-        'opera',
-        'orchestral',
-    ],
-
-    'FUNK':
-    [
-        'funk',
-        'funk melody',
-        'funk pop',
-        'funk rock',
-        'jazz funk',
-        'liquid funk',
-        'uk funky',
-    ]
-}
-
-supergenre_map = {}
-for genre, lst in supergenre_lists.items():
-    for subgenre in lst:
-        supergenre_map[subgenre] = genre
-
 class MonthlyPlaylistHandler:
     '''
     Handler for monthly playlist data. Contains a spotipy Spotify instance,
@@ -506,10 +76,31 @@ class MonthlyPlaylistHandler:
     '''
     
     data_dir = DATA_DIR
+    img_dir = IMG_DIR
+    mpl_dir = MPL_DIR
+
+    n_artists_max = N_ARTISTS_MAX
 
     supergenre_lists = supergenre_lists
     supergenre_map = supergenre_map
 
+    playlists_file = os.path.join(data_dir, 'playlists.csv')
+    tracks_file = os.path.join(data_dir, 'tracks.csv')
+    artists_file = os.path.join(data_dir, 'artists.csv')
+    artist_genres_file = os.path.join(data_dir, 'artist_genres.csv')
+    
+    data_files = [playlists_file, tracks_file, artists_file, artist_genres_file]
+
+    year_styles = {
+        "2018":"2018",
+        "2019":"2019",
+        "2020":"2020",
+        "2021":"2021",
+        "2022":" 22",
+        "2023":" 23",
+        "2024":"-24",
+        "2025":"2025"
+    }
     
     def __init__(self, spotify_client:spotipy.Spotify = None):
         '''
@@ -573,24 +164,11 @@ class MonthlyPlaylistHandler:
             **kwargs
         )
     
-    @property
-    def year_styles(self):
-        with open(os.path.join(self.data_dir, 'year_styles.json', 'r')) as f:
-            return json.load(f)
-        
-    def get_monthly_playlists(self, to_csv:bool = True, date_csv:bool = False) -> pd.DataFrame:
+    # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+    #################################### DOWNLOADS ####################################
+    def download_playlist_metadata(self):
         '''
-        Get a dataframe containing monthly playlists metadata.
-
-        Parameters
-        ----------
-        to_csv : bool
-            If True, will save the resulting pd.DataFrame as a CSV in the data directory.
-            Filenames are in the format 'playlists_YYYY-MM-DD.csv'. Note that this means any
-            other files created on this day will be overwritten.
-        date_csv : bool
-            If True, the saved CSV will have the date of data collection in the filename. Set to
-            True to avoid overwriting previous files.
+        Download a csv containing monthly playlists metadata. See `MonthlyPlaylistHandler.playlist_file` for output.
         '''
 
         got_all_pls = False
@@ -649,133 +227,15 @@ class MonthlyPlaylistHandler:
         # only keep useful columns
         df = df[['id', 'date', 'name', 'description', 'n_tracks', 'url', 'cover_image_url', 'snapshot_id']].set_index('id')
 
-        # save if requested, and return
-        if to_csv:
-            if date_csv:
-                filename = f'playlists_{str(datetime.datetime.now().date())}.csv'
-            else:
-                filename = 'playlists.csv'
-            df.to_csv(
-                os.path.join(self.data_dir, filename)
-            )
-        return df
+        # save
+        df.to_csv(self.playlists_file, index = True)
 
-    @property
-    def latest_playlists_file(self) -> str:
-        
-        if self.playlists_base_csv_exists:
-            return 'playlists.csv'
-        
-        # get the most recent date by extracting the date part of each playlist_DATE.csv file.
-        # then convert to datetime, and get the most recent (max)
-        most_recent_date = pd.to_datetime([file.replace('playlists_','').replace('.csv','') for file in os.listdir(self.data_dir) if 'playlists' in file]).max()
-
-        return f'playlists_{str(most_recent_date.date())}.csv'
-
-    @property
-    def playlists_base_csv_exists(self) -> bool:
-        return os.path.exists(os.path.join(self.data_dir, 'playlists.csv'))
-
-    def read_monthly_playlists(self, date = None, download_if_required = False) -> pd.DataFrame:
+    def download_playlist_cover_image(self, *args, playlist_id:str = None, playlist_date:Union[str, datetime.date] = None,
+                                      overwrite:bool = True, errors:str = 'raise'):
         '''
-        Read a saved DataFrame of monthly playlists.
-
-        Parameters
-        ----------
-        date : str or datetime.date
-            The date the data was collected. If None, will attempt to read the undated file,
-            which is assumed to be the most recent. If the undated file does not exist,
-            will read the most recent dated file.
-            If the date is specified as a string, it should be given in the form YYYY-MM-DD.
-
-        download_if_required : bool
-            If True, will download the data using `get_monthly_playlists()` if the requested
-            file does not exist.
-            If False (default), will raise a FileNotFoundError if the requested file does not exist.
-
-        Returns
-        -------
-        pandas.DataFrame
-        '''
-        
-        if date is None:
-            file = self.latest_playlists_file
-        elif isinstance(date, datetime.date):
-            file = f'playlists_{str(date.date())}.csv'
-        elif isinstance(date, str):
-            file = f'playlists_{date}.csv'
-        else:
-            raise ValueError(f'Unexpected type "{type(date)}" for date input encountered. Try entering date as either a string (YYYY-MM-DD) or datetime.date.')
-        
-        if not os.path.exists(os.path.join(self.data_dir, file)):
-            if download_if_required:
-                if date is None:
-                    df = self.get_monthly_playlists(to_csv=True)
-                else:
-                    raise FileNotFoundError(f'File {file} does not exist in data directory {self.data_dir}. Cannot download data for a specific date.')
-            else:
-                raise FileNotFoundError(f'File {file} does not exist in data directory {self.data_dir}. Set download_if_required=True to download the data.')
-        else:
-            df = pd.read_csv(
-                os.path.join(self.data_dir, file), 
-            ).set_index('id')
-            df['date'] = pd.to_datetime(df['date']).dt.date
-        
-        return df
-    
-    def playlist_id(self, playlist_date:Union[str, datetime.date]) -> str:
-        '''
-        Get the Spotify ID of a monthly playlist from its date.
-
-        Parameters
-        ----------
-        playlist_date : str or datetime.date
-            The date of the playlist. If a string, should be in the form YYYY-MM-DD.
-
-        Returns
-        -------
-        str
-            The Spotify ID of the playlist.
-        '''
-        if isinstance(playlist_date, str):
-            playlist_date = pd.to_datetime(playlist_date).date()
-        elif not isinstance(playlist_date, datetime.date):
-            raise ValueError(f'Unexpected type "{type(playlist_date)}" for date input encountered. Try entering date as either a string (YYYY-MM-DD) or datetime.date.')
-
-        df_pl = self.read_monthly_playlists()
-        try:
-            pl_id = df_pl.loc[df_pl['date'] == playlist_date].index.values[0]
-        except IndexError:
-            raise ValueError(f'No monthly playlist found for date {str(playlist_date)}.')
-        return pl_id
-
-    def playlist_date(self, playlist_id:str) -> datetime.date:
-        '''
-        Get the date of a monthly playlist from its Spotify ID.
-
-        Parameters
-        ----------
-        playlist_id : str
-            The Spotify ID of the playlist.
-
-        Returns
-        -------
-        datetime.date
-            The date of the playlist.
-        '''
-        df_pl = self.read_monthly_playlists()
-        try:
-            pl_date = df_pl.loc[playlist_id, 'date']
-        except KeyError:
-            raise ValueError(f'No monthly playlist found for ID {playlist_id}.')
-        return pl_date
-
-    def get_playlist_cover_image(self, *args, playlist_id:str = None, playlist_date:Union[str, datetime.date] = None,
-                                 overwrite:bool = False, errors:str = 'raise') -> np.ndarray:
-        '''
-        Get the cover image for a monthly playlist, either by its Spotify ID or date.
+        Download the cover image for a monthly playlist, either by its Spotify ID or date.
         The image is saved in the data/imgs directory as a .jpeg file, named
-        cover_YYYY-MM.jpeg.
+        cover_YYYY_MM.jpeg.
 
         Parameters
         ----------
@@ -785,11 +245,11 @@ class MonthlyPlaylistHandler:
             The date of the playlist. If a string, should be in the form YYYY-MM-DD.
             If None, playlist_id must be provided.
         overwrite : bool
-            If True, will try to download the image even if it already exists. If False (default),
+            If True (default), will try to download the image even if it already exists. If False,
             will skip downloading if the file has already been saved and return the saved image.
         errors : {'raise', 'ignore'}
             If 'raise' (default), will raise an error if the playlist does not exist or has no cover image.
-            If 'ignore', will return None in these cases.
+            If 'ignore', will raise no error and return early.
         
         Returns
         -------
@@ -798,15 +258,7 @@ class MonthlyPlaylistHandler:
         '''
         if args:
             if len(args) == 1:
-                if isinstance(args[0], str):
-                    if len(args[0]) == 10 and args[0][4] == '-' and args[0][7] == '-':
-                        playlist_date = args[0]
-                    else:
-                        playlist_id = args[0]
-                elif isinstance(args[0], datetime.date):
-                    playlist_date = args[0]
-                else:
-                    raise ValueError(f'Unexpected type "{type(args[0])}" for date/ID input encountered. Try entering date as either a string (YYYY-MM-DD) or datetime.date, or ID as a string.')
+                playlist_id = self.convert_playlist_identifier(args[0])
             else:
                 raise ValueError('Only one positional argument is accepted, either playlist_id or playlist_date.')
 
@@ -817,41 +269,40 @@ class MonthlyPlaylistHandler:
         if (playlist_id is not None) and (playlist_date is not None):
             raise ValueError('Must provide only one of playlist_id or playlist_date.')
         
+        if isinstance(playlist_date, str):
+            playlist_date = pd.to_datetime(playlist_date).date()
+        
         # get ID from date
         if playlist_date is not None:
             try:
-                playlist_id = self.playlist_id(playlist_date)
+                playlist_id = self.playlist_dates_to_ids[playlist_date]
             except ValueError as e:
                 if errors == 'ignore':
-                    return None
+                    return
                 else:
                     raise e
-            if isinstance(playlist_date, str):
-                playlist_date = pd.to_datetime(playlist_date).date()
         elif playlist_id is not None:
             try:
-                playlist_date = self.playlist_date(playlist_id)
+                playlist_date = self.playlist_ids_to_dates[playlist_id]
             except ValueError as e:
                 if errors == 'ignore':
-                    return None
+                    return
                 else:
                     raise e
         
         # check if image already exists, and return if so
-        save_path = os.path.join(self.data_dir, 'imgs', f'cover_{playlist_date.year}-{playlist_date.month:02d}.jpeg')
+        save_path = os.path.join(self.data_dir, 'imgs', f'cover_{playlist_date.year}_{playlist_date.month:02d}.jpeg')
         if (not overwrite) and os.path.exists(save_path):
             return plt.imread(save_path)
 
-        df_pl = self.read_monthly_playlists()
-
         # try to get the image url, and complain if it doesn't exist
         try:
-            pl_im_url = df_pl.loc[playlist_id, 'cover_image_url']
+            pl_im_url = self.df_playlists.loc[playlist_id, 'cover_image_url']
         except KeyError:
             if errors == 'ignore':
-                return None
+                return
             
-            if playlist_date is not None:
+            elif playlist_date is not None:
                 raise ValueError(f'No monthly playlist found for date {str(playlist_date)}.')
             else:
                 raise ValueError(f'No monthly playlist found for ID {playlist_id}.')
@@ -859,9 +310,9 @@ class MonthlyPlaylistHandler:
         # playlist exists, but has no cover image
         if pd.isna(pl_im_url):
             if errors == 'ignore':
-                return None
+                return
             
-            if playlist_date is not None:
+            elif playlist_date is not None:
                 raise ValueError(f'No cover image found for date {str(playlist_date)}.')
             else:
                 raise ValueError(f'No cover image found for ID {playlist_id}.')
@@ -870,7 +321,1124 @@ class MonthlyPlaylistHandler:
         r = requests.get(pl_im_url)
         im = plt.imread(BytesIO(r.content), format='jpeg')
         plt.imsave(save_path, im)
-        return im
+    
+    def download_playlist_cover_images(self, overwrite:bool = True, errors:str = 'raise'):
+        '''
+        Download all cover images of monthly playlists. 
+        The images are saved in the data/imgs directory as .jpeg files, named cover_YYYY_MM.jpeg.
+
+        Parameters
+        ----------
+        overwrite : bool
+            If True (default), will try to download the image even if it already exists. If False,
+            will skip downloading if the file has already been saved and return the saved image.
+        errors : {'raise', 'ignore'}
+            If 'raise' (default), will raise an error if the playlist does not exist or has no cover image.
+            If 'ignore', will raise no error and return early.
+        '''
+        for playlist_id in self.playlist_ids:
+            self.download_playlist_cover_image(
+                playlist_id=playlist_id, 
+                overwrite=overwrite, 
+                errors = errors
+            )
+
+    def download_playlist_contents(self, backoff_time: float = 0.0, progress_bar: bool = False):
+        '''
+        Get all tracks in all monthly playlists, 
+
+        Parameters
+        ----------
+        backoff_time : float
+            Time in seconds to sleep after API calls to avoid rate limiting.
+            Default is 0.0 seconds. Only applies for playlists that require more than 1 call (i.e., playlists with more than 100 tracks).
+        progress_bar : bool
+            If True (default), will display a progress bar while fetching data. Note rate estimates
+            may be inaccurate if backoff_time is large.
+        to_csv : bool
+            If True, will save the resulting pd.DataFrame as a CSV in the data directory.
+        date_csv : bool
+            If True, the saved CSV will have the date of data collection in the filename. Set to
+            True to avoid overwriting previous files.
+        '''
+
+        df_mpls = self.df_playlists
+
+        # to hold all tracks
+        track_data = dict(
+            id = [],
+            name = [],
+            album = [],
+            album_id = [],
+            duration = [],
+            release_date = [],
+            release_date_precision = [],
+            popularity = [],  # note this will change over time, as it depends on number of listens and how recent those listens are
+            external_ids = [],  # probably not useful
+        )
+        # add cols for artist_1 to artist_n_artists_max. may need to config n_artists_max if there's a track with more than 10 artists.
+        for n in range(self.n_artists_max):
+            track_data[f'artist_{n+1}'] = []
+        artist_ids = set()
+
+
+        # get track info for all monthly playlists
+        for playlist_id, playlist_metadata in tqdm(df_mpls.iterrows(), total=len(df_mpls), disable=not progress_bar, desc = 'Collecting track data'):
+            playlist_data = dict(
+                id = [],  # 0-indexed track positional
+                track = [],
+                date_added = []
+            ) 
+
+            for call in range(int(np.ceil(playlist_metadata['n_tracks'] / 100))):  # calls made in blocks of up to 100
+                if call > 0:
+                    time.sleep(backoff_time)  # shhh little spotify api client. do not complain. it will all be ok. just rest.
+
+                pl_mth = self.spotify_client.playlist_items(playlist_id, limit=100, offset=call*100)
+
+                # iterate through tracks
+                for track_i, track in enumerate(pl_mth['items']):
+                    n_artists = len(track['track']['artists'])
+                    if n_artists > self.n_artists_max:
+                        self.n_artists_max += 1
+                        track_data[f'artist_{self.n_artists_max+1}'] = [pd.NA for item in track_data['id']]
+                        logger.warning(f'Track "{track["track"]["name"]}" has more than {self.n_artists_max} artists - modify N_ARTISTS_MAX in source?\nAlbum: {track["track"]["album"]["name"]}, playlist: {df_mpls.loc[id, "name"]}')
+
+                    track_id = track['track']['id']
+
+                    # collect playlist_DATE.csv data - indexed by track position in playlist
+                    playlist_data['id'].append(track_i)
+                    playlist_data['track'].append(track_id)
+                    playlist_data['date_added'].append(track['added_at'])
+
+                    # collect tracks.csv data if we haven't already
+                    if track_id not in track_data['id']:
+                        track_data['id'].append(track_id)
+                        track_data['name'].append(track['track']['name'])
+                        track_data['album'].append(track['track']['album']['name'])
+                        track_data['album_id'].append(track['track']['album']['id'])
+                        track_data['duration'].append(track['track']['duration_ms'])
+                        track_data['release_date'].append(track['track']['album']['release_date'])
+                        track_data['release_date_precision'].append(track['track']['album']['release_date_precision'])
+                        track_data['popularity'].append(track['track']['popularity'])
+                        track_data['external_ids'].append(track['track']['external_ids'])
+
+                        # collect artist info
+                        for i in range(self.n_artists_max):
+                            if i < n_artists:
+                                artist_id = track['track']['artists'][i]['id']
+                                artist_ids.add(artist_id)
+                                track_data[f'artist_{i+1}'].append(artist_id)
+                            else:
+                                track_data[f'artist_{i+1}'].append(pd.NA)
+
+            df_playlist = pd.DataFrame(playlist_data).set_index('id')
+            df_playlist['date_added'] = pd.to_datetime(df_playlist['date_added'])
+            df_playlist.to_csv(
+                self.playlist_file(playlist_id),
+                index = True
+            )
+
+        artist_data = dict(
+            id = [],
+            name = [],
+            popularity = [],
+            genres = []
+        )
+        genres = set()
+
+        # get artist data in blocks of 50
+        artist_ids_list = list(artist_ids)
+        for i in tqdm(range(0, len(artist_ids), 50), disable=not progress_bar, desc = 'Collecting artist data'):
+            artist_block = artist_ids_list[i:i+50]
+            artists_expanded = self.spotify_client.artists(artist_block)
+            time.sleep(backoff_time)
+
+            for artist in artists_expanded['artists']:
+                for genre in artist['genres']:
+                    genres.add(genre)
+                artist_data['genres'].append(artist['genres'])
+                artist_data['id'].append(artist['id'])
+                artist_data['name'].append(artist['name'])
+                artist_data['popularity'].append(artist['popularity'])
+        
+        df_artists = pd.DataFrame(artist_data).set_index('id')
+        
+        # save metadata
+        df_artists.drop(columns = ['genres']).to_csv(
+            self.artists_file,
+            index = True
+        )
+        
+        genre_cols = []
+        for genre in genres:
+            genre_col = df_artists.loc[:, 'genres'].apply(lambda x: genre in x)
+            genre_col.name = genre
+            genre_cols.append(genre_col)
+        
+        # melt into three columns: id, genre, present. long and thin table.
+        df_artists = pd.concat(
+            [df_artists.drop(columns = ['name', 'genres', 'popularity']), pd.concat(genre_cols, axis = 1)], 
+            axis = 1
+        ).melt(ignore_index=False, var_name='genre', value_name='present')
+        df_artists = df_artists.loc[df_artists['present'], 'genre']  # only keep genres that are present, and remove the present column
+
+        df_tracks = pd.DataFrame(track_data).set_index('id')
+
+        def format_release_date(date):
+            if date == '0000':
+                return pd.NA
+            if len(date) == 4:
+                return date + '-01-01'
+            elif len(date) == 7:
+                return date + '-01'
+            else:
+                return date
+        df_tracks['release_date'] = pd.to_datetime(df_tracks['release_date'].apply(format_release_date), format = r'%Y-%m-%d')
+
+        df_tracks.to_csv(
+            self.tracks_file,
+            index=True
+        )
+        df_artists.to_csv(
+            self.artist_genres_file,
+            index=True
+        )
+
+    def download(self, cover_image_kwargs:dict = {}, playlist_contents_kwargs:dict = {}):
+        '''
+        Download all relevant data (playlist metadata, playlist contents, and playlist cover images).
+
+        Parameters
+        ----------
+        cover_image_kwargs : dict, optional
+            Optional keyword arguments to pass to the `download_playlist_cover_images` method.
+        playlist_contents_kwargs : dict, optional
+            Optional keyword arguments to pass to the `download_playlist_contents` method.
+        '''
+
+        self.download_playlist_metadata()
+
+        self.download_playlist_cover_images(**cover_image_kwargs)
+
+        self.download_playlist_contents(**playlist_contents_kwargs)
+    
+    # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+    ################################# TABLE PROPERTIES ################################
+    @property
+    def img_files(self):
+        return [os.path.join(os.path.abspath(self.img_dir), x) for x in os.listdir(self.img_dir)]
+    
+    @property
+    def mpl_files(self):
+        return [os.path.join(os.path.abspath(self.mpl_dir), x) for x in os.listdir(self.mpl_dir)]
+    
+    def check_downloaded(self, file:str = 'all'):
+        '''
+        Check if the requested file has been downloaded, returning the result as a bool.
+
+        Parameters
+        ----------
+        file : {'all', 'playlists.csv', 'tracks.csv', 'artists.csv', 'artist_genres.csv', 'mpls'}
+            The file to check. Any of the above, or any file from 
+            If 'all' (default), will check for all data files, 
+            returning True only if all are present. If 'mpl', will check if 
+            the mpl directory (`mpl_dir`) is empty. Will also accept a playlist csv
+            to check (e.g. 'mpl_2018_01' for 'mpl_2018_01.csv').
+            Full filepaths will also be accepted.
+
+        Returns
+        -------
+        True
+            If file is downloaded.
+
+        Raises
+        ------
+        FileNotFoundError
+            If the requested file(s) is/are not found.
+        ValueError
+            If file is not one of {'all', 'mpls', 'imgs', 'playlists.csv', 'tracks.csv', 'artists.csv', 'artist_genres.csv'}, or a valid mpl_.csv file.
+        '''
+
+        filepaths = {
+            **{os.path.split(file)[-1].removesuffix('.csv'): file for file in self.data_files},
+            **{os.path.split(file)[-1]: file for file in self.data_files}
+        }
+
+        if file == 'all':
+            for file in self.data_files:
+                self.check_downloaded(file)
+        
+        if file == 'mpls':
+            if len(os.listdir(self.mpl_dir)) == 0:
+                raise FileNotFoundError(f'mpls directory ({self.mpl_dir}) is empty. Try downloading data with the `.download` method.')
+            return True
+        
+        if file == 'imgs':
+            if len(os.listdir(self.mpl_dir)) == 0:
+                raise FileNotFoundError(f'mpls directory ({self.mpl_dir}) is empty. Try downloading data with the `.download` method.')
+            return True
+        
+        if file in self.img_files + self.mpl_files:
+            # dynamically calculated file lists - if it's in there, it exists.
+            return True
+        
+        # in all other cases we must manually check the file
+        if file in self.data_files:
+            filepath = file
+        elif file in filepaths:
+            filepath = filepaths[file]
+        elif 'mpl_' in file:
+            if len(file) != 15: # mpl filenames are 15 chars long
+                raise ValueError(f"Cannot check for unrecognised file '{file}'. Must be one of 'all', 'imgs', 'mpls', {set(filepaths)}, a valid mpl_*.csv, cover_*.jpeg, or the full filepath of any of these files.")
+            filepath = os.path.join(self.mpl_dir, file)
+        elif 'img_' in file:
+            if len(file) != 18: # mpl filenames are 15 chars long
+                raise ValueError(f"Cannot check for unrecognised file '{file}'. Must be one of 'all', 'imgs', 'mpls', {set(filepaths)}, a valid mpl_*.csv, cover_*.jpeg, or the full filepath of any of these files.")
+            filepath = os.path.join(self.img_dir, file)
+        elif file not in filepaths:
+            raise ValueError(f"Cannot check for unrecognised file '{file}'. Must be one of 'all', 'imgs', 'mpls', {set(filepaths)}, a valid mpl_*.csv, cover_*.jpeg, or the full filepath of any of these files.")
+        else:
+            filepath = filepaths[file]
+
+        if not os.path.isfile(filepath):
+            raise FileNotFoundError(f'{file} not found. Try downloading data with the `.download` method.')
+            
+    @property
+    def df_tracks(self) -> pd.DataFrame:
+        '''
+        Convenience property to read the tracks csv to a DataFrame.
+
+        Returns
+        -------
+        pandas.DataFrame
+            DataFrame of all tracks in all monthly playlists.
+        '''
+        self.check_downloaded(self.tracks_file)
+
+        df = pd.read_csv(self.tracks_file, index_col='id')
+        df['release_date'] = pd.to_datetime(df['release_date'], format = r'%Y-%m-%d').dt.date
+        return df
+
+    @property
+    def df_playlists(self) -> pd.DataFrame:
+        '''
+        Convenience property to read the playlists metadata from csv to DataFrame.
+
+        Returns
+        -------
+        pandas.DataFrame
+            DataFrame of monthly playlists metadata.
+        '''
+        self.check_downloaded(self.playlists_file)
+
+        df = pd.read_csv(self.playlists_file, index_col='id')
+        df['date'] = pd.to_datetime(df['date'], format = r'%Y-%m-%d').dt.date
+        return df
+
+    @property
+    def df_artists(self) -> pd.DataFrame:
+        '''
+        Convenience property to read the artists data from csv to DataFrame.
+
+        Returns
+        -------
+        pandas.DataFrame
+            DataFrame containing artist information (genres and popularities).
+        '''
+        self.check_downloaded(self.artists_file)
+
+        return pd.read_csv(self.artists_file, index_col='id')
+
+    @property
+    def df_artist_genres(self) -> pd.DataFrame:
+        '''
+        Convenience property to read the artists data from csv to DataFrame.
+
+        Returns
+        -------
+        pandas.DataFrame
+            DataFrame containing artist information (genres and popularities).
+        '''
+        self.check_downloaded(self.artist_genres_file)
+
+        return pd.read_csv(self.artist_genres_file, index_col='id').pivot(columns = 'genre', values = 'genre').map(lambda x: True, na_action='ignore').fillna(False).infer_objects(copy=False)
+
+    def playlist_file(self, identifier:Union[str, datetime.date]) -> str:
+        '''
+        Filepath for the playlist csv corresponding to the given identifier as a DataFrame. 
+
+        Parameters
+        ----------
+        identifier : str or datetime.date
+            The identifier of the playlist - either a spotify playlist ID, date, or playlist name.
+        
+        Returns
+        -------
+        str
+            Filepath of the playlist csv.
+        '''
+        date = self.convert_playlist_identifier(identifier, 'date')
+
+        return os.path.join(self.mpl_dir, f'mpl_{date.year}_{date.month:02d}.csv')
+
+    def df_playlist(self, identifier:Union[str, datetime.date] = 'all') -> pd.DataFrame:
+        '''
+        Read the playlist csv corresponding to the given identifier as a DataFrame.
+
+        Parameters
+        ----------
+        identifier : str or datetime.date
+            The identifier of the playlist - either a spotify playlist ID, date, or playlist name.
+            If 'all' (defualt), will return all playlists in one dataframe, with a multi-index of
+            (playlist_id, track position ('id'))
+        
+        Returns
+        -------
+        pandas.DataFrame
+            DataFrame containing the track ids in the playlist and the date they were added.
+        '''
+        if identifier == 'all':
+            df = self.sql(f'''
+                    SELECT 
+                        strptime(CONCAT(filename[65:71],'_01'), '%Y_%m_%d') as playlist_id,
+                        id,
+                        date_added, 
+                        track
+                    FROM read_csv('{self.mpl_dir}/*.csv', filename = true)'''
+            )
+            df['playlist_id'] = df['playlist_id'].dt.date.map(self.playlist_dates_to_ids)
+            return df.set_index(['playlist_id','id'])
+
+
+        filepath = self.playlist_file(identifier)
+        self.check_downloaded(filepath)
+        
+        return pd.read_csv( filepath, index_col='id')
+    
+    def playlist_cover_image(self, identifier:Union[str, datetime.date] = None) -> np.ndarray:
+        '''
+        Read the cover image for the playlist corresponding to the given identifier.
+
+        Parameters
+        ----------
+        identifier : str or datetime.date
+            The identifier of the playlist - either a spotify playlist ID, date, or playlist name.
+        
+        Returns
+        -------
+        numpy.ndarray
+            Numpy array containing the image data.
+        '''
+
+        date = self.convert_playlist_identifier(identifier, 'date')
+
+        return plt.imread(
+            os.path.join(self.img_dir, f'cover_{date.year}_{date.month:02d}.jpeg')
+        )
+
+    # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+    #################################### CONVERSION ####################################
+    @property
+    def playlist_ids_to_dates(self) -> dict:
+        '''
+        Dictionary mapping all monthly playlist IDs to their dates.
+
+        Returns
+        -------
+        dict
+            A dictionary mapping all monthly playlist IDs to their dates.
+        '''
+        return self.df_playlists['date'].to_dict()
+
+    @property
+    def playlist_ids_to_names(self) -> dict:
+        '''
+        Dictionary mapping all monthly playlist IDs to their names.
+
+        Returns
+        -------
+        dict
+            A dictionary mapping all monthly playlist IDs to their names.
+        '''
+        return self.df_playlists['name'].to_dict()
+    
+    @property
+    def playlist_names_to_ids(self) -> dict:
+        '''
+        Dictionary mapping all monthly playlist names to their IDs.
+
+        Returns
+        -------
+        dict
+            A dictionary mapping all monthly playlist names to their IDs.
+        '''
+        return self.df_playlists.reset_index().set_index('name')['id'].to_dict()
+    
+    @property
+    def playlist_dates_to_ids(self) -> dict:
+        '''
+        Dictionary mapping all monthly playlist dates to their IDs.
+
+        Returns
+        -------
+        dict
+            A dictionary mapping all monthly playlist dates to their IDs.
+        '''
+        return self.df_playlists.reset_index().set_index('date')['id'].to_dict()
+    
+    def _identify_identifier(self, identifier:Union[str, datetime.date]):
+        '''
+        Identify whether a given identifier is a spotfy id, date, or playlist name.
+        
+        Parameters
+        ----------
+        identifier : str or datetime.date
+            The identifier whose type will be identified. `datetime.datetime` values will be treated as
+            `datetime.date`s, and converted when returned.
+
+        Returns
+        -------
+        identifier_type : {'date', 'id', 'name'}
+            The type of the identifier, returned as a string.
+        identifier : str or datetime.date
+            The given identifier, converted to the expected type (datetime.date for 'date', and str otherwise).
+        
+        Raises
+        ------
+        TypeError
+            When identifier is not a str or datetime.date/datetime.datetime.
+        '''
+        
+        if isinstance(identifier, datetime.date):
+            return 'date', identifier
+        elif isinstance(identifier, datetime.datetime):
+            return 'date', identifier.date()
+        elif isinstance(identifier, str):
+            if identifier[:2] == '20' and identifier.count('-') == 2 and len(identifier) in (8, 9, 10):
+                date_split = identifier.split('-')
+                return 'date', datetime.date(int(date_split[0]), int(date_split[1]), int(date_split[2]))
+            elif identifier[:2] == '20' and identifier.count('-') == 1 and len(identifier) in (6, 7):
+                date_split = identifier.split('-')
+                return 'date', datetime.date(int(date_split[0]), int(date_split[1]), 1)
+            elif identifier in self.playlist_ids:
+                return 'id', identifier
+            else:
+                return 'name', identifier
+        else:
+            raise TypeError(f'identifier must be either str or datetime.date. Got {type(identifier)}')
+
+    def convert_playlist_identifier(self, identifier:Union[str, datetime.date], return_type:str = 'id') -> str:
+        '''
+        Parse a given playlist identifier (either playlist date or playlist name) and return
+        the corresponding playlist id.
+
+        Parameters
+        ----------
+        identifier : str or datetime.date
+            The identifier to parse. Should be a valid date (either datetime.date or a str in the form YYYY-MM-01),
+            or a valid playlist name from `.playlist_names`
+        return_type : {'id', 'date', 'name'}, optional
+            The type of identifier to return. Defaults to 'id', returning the playlist id.
+
+        Returns
+        -------
+        id : str
+            The identified playlist id
+        
+        Raises
+        ------
+        ValueError
+            If the identifier cannot be found in the list of known playlist names, and is not in the expected 
+            YYYY-MM-01 format.
+        '''
+        
+        identifier_type, identifier = self._identify_identifier(identifier)
+        if identifier_type == return_type:
+            return identifier
+        else:
+            if identifier_type == 'id':
+                sp_id = identifier
+            elif identifier_type == 'date':
+                sp_id = self.playlist_dates_to_ids[identifier]
+            else:  # identifier_type == 'name'
+                sp_id = self.playlist_names_to_ids[identifier]
+            
+        if return_type == 'id':
+            return sp_id
+        elif return_type == 'date':
+            return self.playlist_ids_to_dates[sp_id]
+        else:  # identifier_type == 'name'
+            return self.playlist_ids_to_names[sp_id]
+        
+    # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+    ################################ IDENTIFIER LISTS #################################
+    ####### PLAYLISTS #######
+    @property
+    def playlist_ids(self) -> list:
+        '''
+        Get a list of all monthly playlist IDs.
+
+        Returns
+        -------
+        list
+            A list of all monthly playlist Spotify IDs.
+        '''
+        return self.df_playlists.index.tolist()
+
+    @property
+    def playlist_names(self) -> np.ndarray:
+        '''
+        Names of all playlists present in the playlists.csv file.
+
+        Returns
+        -------
+        np.ndarray
+            An array of the names the monthly playlists.
+        '''
+        return self.df_playlists['name'].unique()
+    
+    @property
+    def playlist_dates(self) -> np.ndarray:
+        '''
+        Dates of all playlists present in the downloaded playlists.csv file
+
+        Returns
+        -------
+        np.ndarray
+            An array of the dates (months) the monthly playlist data covers
+        '''
+        return self.df_playlists['date'].unique()
+
+    ####### TRACKS #######
+    @property
+    def track_ids(self) -> np.ndarray:
+        '''
+        Array of all artist ids present in all monthly playlists
+
+        Returns
+        -------
+        np.ndarray
+            An array of all artist ids present in all monthly playlists.
+        '''
+        return self.df_tracks.index.to_numpy()
+
+    @property
+    def track_names(self) -> np.ndarray:
+        '''
+        Array of all artist names present in all monthly playlists
+
+        Returns
+        -------
+        np.ndarray
+            An array of all artist names present in all monthly playlists.
+        '''
+        return self.df_tracks['name'].values
+
+    ####### ARTISTS #######
+    @property
+    def artist_ids(self) -> np.ndarray:
+        '''
+        Array of all artist ids present in all monthly playlists
+
+        Returns
+        -------
+        np.ndarray
+            An array of all artist ids present in all monthly playlists.
+        '''
+        return self.df_artists.index.to_numpy()
+
+    @property
+    def artist_names(self) -> np.ndarray:
+        '''
+        Array of all artist names present in all monthly playlists
+
+        Returns
+        -------
+        np.ndarray
+            An array of all artist names present in all monthly playlists.
+        '''
+        return self.df_artists['name'].values
+    
+    ####### GENRES #######
+    @property
+    def genres(self) -> np.ndarray:
+        '''
+        Array of genres present in all monthly playlists
+
+        Returns
+        -------
+        numpy.ndarray
+            Array of all genres present in all monthly playlists.
+        '''
+        return self.df_artist_genres.columns.to_numpy()
+
+    @property
+    def supergenres(self) -> np.ndarray:
+        '''
+        Array of defined supergenres present in all monthly playlists
+
+        Returns
+        -------
+        numpy.ndarray
+            Array of the pre-defined supergenres.
+        '''
+        return np.array(list(self.supergenre_lists.keys()))
+    
+    # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
+    #################################### ANALYSIS ####################################
+    def sql(self, query: str, *, alias: str = "", params: object = None) -> pd.DataFrame:
+        '''
+        Query the downloaded data using a sql query, and return in a pandas DataFrame.
+        Queries are made via a DuckDB memory connection. Quack quack.
+
+        Parameters
+        ----------
+        query : str
+            The query, passed to duckdb.connection(':memory:').sql().
+        alias : str
+            No idea really. DuckDB docs are terrible on this. But it's a parameter so I'm givimg you
+            access to it!
+        params : object
+            Again, no idea. See DuckDB docs maybe? You might have more luck than me.
+        
+        Returns
+        -------
+        pandas.DataFrame
+        '''
+        # ensure we have all required data downloaded before querying
+        for file in self.data_files + self.img_files + self.mpl_files:
+            if file in query:
+                self.check_downloaded(file)
+
+        with duckdb.connect(':memory:') as con:
+            return con.sql(query=query, alias=alias, params=params).df()
+
+    def artist_timeseries(self) -> pd.DataFrame:
+        '''
+        A dataframe with index of playlist dates, and columns of artists, with
+        values showing how many tracks by/featuring that artist are present in the given months playlist.
+
+        Returns
+        -------
+        pd.DataFrame
+        '''
+
+        sql_text = f'''
+
+        WITH tracks AS (
+        SELECT id, artist_1, artist_2, artist_3, artist_4, artist_5, artist_6, artist_7, artist_8, artist_9, artist_10
+        FROM read_csv('{self.tracks_file}')
+        ),
+
+        playlists AS (
+        SELECT 
+            track, 
+            strptime(CONCAT(filename[65:71],'_01'), '%Y_%m_%d') as playlist_date 
+        FROM read_csv('{self.mpl_dir}/*.csv', filename = true)
+        ),
+
+        playlist_artists as(
+        SELECT 
+            pls.playlist_date, 
+            tr.* EXCLUDE id
+        FROM playlists pls
+        LEFT JOIN tracks tr
+        ON tr.id = pls.track
+        ),
+
+        artists as(
+        SELECT id, name
+        FROM read_csv('{self.artists_file}')
+        ),
+
+        playlist_artist_stack as (
+        SELECT
+            playlist_date,
+            artist,
+        FROM playlist_artists
+        UNPIVOT (
+            artist FOR artist_col IN (
+                artist_1,
+                artist_2,
+                artist_3,
+                artist_4,
+                artist_5,
+                artist_6,
+                artist_7,
+                artist_8,
+                artist_9,
+                artist_10
+            )
+
+        )
+        ),
+
+        playlist_artist_count as (
+        SELECT 
+            p.playlist_date, 
+            a.name
+        FROM playlist_artist_stack p
+        JOIN artists a
+        ON a.id = p.artist
+        )
+
+        PIVOT playlist_artist_count
+        ON name
+        USING count(*)
+        GROUP BY playlist_date
+        '''
+        
+        df = self.sql(sql_text)
+
+        df['playlist_date'] = df['playlist_date'].dt.date
+        return df.set_index('playlist_date').sort_index()
+
+    def genre_timeseries(self, *, supergenre = False) -> pd.DataFrame:
+        '''
+        A dataframe with index of playlist dates, and columns of genres/supergenres, with
+        values showing how many tracks by/featuring artists with that genre are in that month's playlist.
+        Uses a duckdb backend.
+
+        Parameters
+        ----------
+        supergenre : bool
+            Whether to aggregate genres into supergenres. Defaults to False.
+
+        Returns
+        -------
+        pd.DataFrame
+        '''
+
+        sql_text = f'''{f'SET VARIABLE genre_map = MAP {self.supergenre_map};' if supergenre else ''}
+        
+        WITH tracks AS (
+            SELECT id, artist_1, artist_2, artist_3, artist_4, artist_5, artist_6, artist_7, artist_8, artist_9, artist_10, 
+            FROM read_csv('{self.tracks_file}')
+        ),
+
+        artists AS (
+            SELECT id, 
+                {"getvariable('genre_map')[genre] as " if supergenre else ''}genre, 
+                true as present
+            FROM read_csv('{self.artist_genres_file}')
+        ),
+        '''
+
+        for i in range(10):
+            sql_text += f'''artist_genres_{i+1} AS (
+                        SELECT 
+                            t.id as track_id, 
+                            a.genre,
+                            CAST(a.present as int) as present
+                        FROM tracks t
+                        INNER JOIN artists a
+                            ON t.artist_{i+1} = a.id 
+                        ),
+            
+            '''
+                
+        sql_text += f'''artist_genres AS (
+                            SELECT * FROM artist_genres_1
+                            UNION SELECT * FROM artist_genres_2
+                            UNION SELECT * FROM artist_genres_3
+                            UNION SELECT * FROM artist_genres_4
+                            UNION SELECT * FROM artist_genres_5
+                            UNION SELECT * FROM artist_genres_6
+                            UNION SELECT * FROM artist_genres_7
+                            UNION SELECT * FROM artist_genres_8
+                            UNION SELECT * FROM artist_genres_9
+                            UNION SELECT * FROM artist_genres_10
+                        ),
+
+                        playlists_genres as(
+                        SELECT 
+                            strptime(pls.playlist_date, '%Y_%m_%d') as playlist_date, 
+                            ag.genre, 
+                            ag.present
+                        FROM (
+                            SELECT 
+                                track, 
+                                CONCAT(filename[65:71],'_01') as playlist_date 
+                            FROM read_csv('{self.mpl_dir}/*.csv', filename = true)
+                        ) pls
+                        LEFT JOIN artist_genres ag
+                        ON pls.track = ag.track_id
+                        )
+                        
+                    PIVOT playlists_genres
+                        ON genre
+                        USING sum(present)
+                        GROUP BY playlist_date'''
+        
+        # quack
+        df = self.sql(sql_text).convert_dtypes()
+        df['playlist_date'] = df['playlist_date'].dt.date
+
+        return df.set_index('playlist_date').sort_index()
+    
+    def tracks_with_artist_genre(self, genre, *, search_within_strings = False, playlist = None, supergenre = False):
+        '''
+        Get all tracks in the monthly playlists that have a given artist genre. The artist genre can
+        be a genre (default) or, if `supergenre = True`, a supergenre as specified in `supergenre_lists`.
+
+        Parameters
+        ----------
+        genre : str
+            The genre to search for. Should be one of the available genres (see `genres`) or 
+            a supergenre (`supergenres`).
+        search_within_strings : bool
+            If True, will return tracks whose genre contains the given genre text (LIKE '%genre%'),
+            rather than only exact matches. Useful for identifying subgenres.
+        playlist : str or datetime.date, optional
+            A playlist identifier specifying the playlist to search through. 
+            If given, will only return matches that are in the corresponding playlist.
+        supergenre : bool, optional
+            Whether or not the given genre should be interpreted as a supergenre. Defaults to False.
+        '''
+        if playlist is not None:
+            pl_date = self.convert_playlist_identifier(playlist, 'date')
+            pl_fname = f'mpl_{pl_date.year}_{pl_date.month:02d}.csv'
+        else:
+            pl_fname = '*.csv'
+
+        sql_text = f'''{f'SET VARIABLE genre_map = MAP {self.supergenre_map};' if supergenre else ''}
+        
+        WITH tracks AS (
+            SELECT *
+            FROM read_csv('{self.tracks_file}')
+        ),
+
+        artists AS (
+            SELECT id, 
+                {"getvariable('genre_map')[genre] as " if supergenre else ''}genre
+            FROM read_csv('{self.artist_genres_file}')
+            WHERE genre {f"LIKE '%{genre}%'" if search_within_strings else f" = '{genre}'"} 
+        ),
+        '''
+
+        for i in range(10):
+            sql_text += f'''artist_genres_{i+1} AS (
+                        SELECT 
+                            t.id as track_id, 
+                            t.* EXCLUDE id,
+                            a.genre
+                        FROM tracks t
+                        INNER JOIN artists a
+                            ON t.artist_{i+1} = a.id 
+                        ),
+            
+            '''
+                
+        sql_text += f'''artist_genres AS (
+                            SELECT * FROM artist_genres_1
+                            UNION SELECT * FROM artist_genres_2
+                            UNION SELECT * FROM artist_genres_3
+                            UNION SELECT * FROM artist_genres_4
+                            UNION SELECT * FROM artist_genres_5
+                            UNION SELECT * FROM artist_genres_6
+                            UNION SELECT * FROM artist_genres_7
+                            UNION SELECT * FROM artist_genres_8
+                            UNION SELECT * FROM artist_genres_9
+                            UNION SELECT * FROM artist_genres_10
+                        )
+
+                        
+                        SELECT 
+                            strptime(pls.playlist_date, '%Y_%m_%d') as playlist_id, 
+                            ag.*
+                        FROM (
+                            SELECT 
+                                track, 
+                                CONCAT(filename[65:71],'_01') as playlist_date 
+                            FROM read_csv('{self.mpl_dir}/{pl_fname}', filename = true)
+                        ) pls
+                        INNER JOIN artist_genres ag
+                        ON pls.track = ag.track_id
+                        '''
+        
+        # quack
+        df = self.sql(sql_text).convert_dtypes()
+        df['playlist_id'] = df['playlist_id'].dt.date.map(self.playlist_dates_to_ids)
+
+        return df.set_index(['playlist_id', 'track_id']).sort_index()
+        
+    def n_tracks_with_artist_genre(self, genre, *, distinct = False, search_within_strings = False, playlist = None, supergenre = False):
+        '''
+        The number of tracks in the monthly playlists that have a given artist genre. The artist genre can
+        be a genre (default) or, if `supergenre = True`, a supergenre as specified in `supergenre_lists`.
+
+        Parameters
+        ----------
+        genre : str
+            The genre to search for. Should be one of the available genres (see `genres`) or 
+            a supergenre (`supergenres`).
+        distinct : bool
+            If True, will not count repeats (e.g. if a track is in multiple playlists).
+        search_within_strings : bool
+            If True, will return tracks whose genre contains the given genre text (using LIKE '%genre%'),
+            rather than only exact matches. Useful for identifying subgenres.
+        playlist : str or datetime.date, optional
+            A playlist identifier specifying the playlist to search through. 
+            If given, will only count matches that are in the corresponding playlist.
+        supergenre : bool, optional
+            Whether or not the given genre should be interpreted as a supergenre. Defaults to False.
+        '''
+        df = self.tracks_with_artist_genre(
+            genre, 
+            search_within_strings=search_within_strings, 
+            playlist = playlist,
+            supergenre = supergenre
+        )
+        if distinct:
+            return df.groupby('track_id').ngroups
+        else:
+            return df.groupby(['playlist_id', 'track_id']).ngroups
+    
+    def genre_track_counts(self, distinct = False, playlist = None, supergenre = False) -> pd.Series:
+        '''
+        Get the number of tracks of each genre.
+
+        
+        Parameters
+        ----------
+        distinct : bool
+            If True, will not count repeats (e.g. if a track is in multiple playlists).
+        playlist : str or datetime.date, optional
+            A playlist identifier specifying the playlist to search through. 
+            If given, will only count matches that are in the corresponding playlist.
+        supergenre : bool, optional
+            Whether or not to use supergenres. Defaults to False.
+
+        Returns
+        -------
+        pd.Series
+            Series of track counts indexed by genre names
+        '''
+        # TODO: less silly implementation that doesn't take upwards of 40 seconds to run
+        if supergenre:
+            return pd.Series({genre: self.n_tracks_with_artist_genre(genre, distinct=distinct, playlist=playlist, supergenre=True) for genre in self.supergenres}, name = 'count').sort_values(ascending=False)
+        
+        return pd.Series({genre: self.n_tracks_with_artist_genre(genre, distinct=distinct, playlist=playlist) for genre in self.genres}, name = 'count').sort_values(ascending=False)
+
+    @property
+    def genres_not_in_supergenres(self) -> set:
+        '''
+        Array of genres that do not fall into any of the defined supergenre categories.
+        Any genre in here will require classification to be included in analysis functions
+        using the supergenres.
+
+        Returns
+        -------
+        set
+            Set of genres. May (hopefully) be empty.
+        '''
+        genres = []
+        for g_list in self.supergenre_lists.values():
+            genres += g_list
+
+        return set(self.genres) - set(genres)
+
+    def artist_counts(self, playlist = None) -> pd.Series:
+        '''
+        Series of artist name: number of times that artist appears in `df_tracks`.
+
+        Returns
+        -------
+        pd.Series
+        '''
+        
+        if playlist is not None:
+            pl_date = self.convert_playlist_identifier(playlist, 'date')
+            pl_fname = f'mpl_{pl_date.year}_{pl_date.month:02d}.csv'
+        else:
+            pl_fname = '*.csv'
+
+
+        sql_text = f'''
+
+            WITH tracks AS (
+            SELECT id, artist_1, artist_2, artist_3, artist_4, artist_5, artist_6, artist_7, artist_8, artist_9, artist_10
+            FROM read_csv('{self.tracks_file}')
+            ),
+
+            playlists AS (
+            SELECT 
+                track, 
+                strptime(CONCAT(filename[65:71],'_01'), '%Y_%m_%d') as playlist_date 
+            FROM read_csv('{self.mpl_dir}/{pl_fname}', filename = true)
+            ),
+
+            playlist_artists as(
+            SELECT 
+                pls.playlist_date, 
+                tr.* EXCLUDE id
+            FROM playlists pls
+            LEFT JOIN tracks tr
+            ON tr.id = pls.track
+            ),
+
+            artists as(
+            SELECT id, name
+            FROM read_csv('{self.artists_file}')
+            ),
+
+            playlist_artist_stack as (
+                SELECT
+                    playlist_date,
+                    artist,
+                FROM playlist_artists
+                UNPIVOT (
+                    artist FOR artist_col IN (
+                        artist_1,
+                        artist_2,
+                        artist_3,
+                        artist_4,
+                        artist_5,
+                        artist_6,
+                        artist_7,
+                        artist_8,
+                        artist_9,
+                        artist_10
+                    )
+
+                )
+            )
+
+        
+            SELECT 
+                p.artist as id,
+                a.name,
+                p.track_count
+            FROM (
+                SELECT artist, COUNT(artist) as track_count
+                FROM playlist_artist_stack
+                GROUP BY artist
+            ) p
+            JOIN artists a
+            ON a.id = p.artist
+            '''
+
+        return self.sql(sql_text).convert_dtypes().set_index('id').sort_values('track_count', ascending=False)
+
+
+    # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
+    ################################### PLOTTING  ###################################
+    @staticmethod
+    def _centre_square_crop(im):
+        h, w, _ = im.shape
+        if h == w:
+            return im
+        elif h > w:
+            diff = h - w
+            pad1 = diff // 2
+            pad2 = diff - pad1
+            return im[pad1:-pad2, :, :]
+        else:
+            diff = w - h
+            pad1 = diff // 2
+            pad2 = diff - pad1
+            return im[:, pad1:-pad2, :]
     
     def plot_playlist_covers(self, orientation:str = 'horizontal', 
                              scale:float = 1.0, wspace:float = 0.1, hspace:float = 0.1) -> Tuple[plt.Figure, np.ndarray]:
@@ -899,7 +1467,7 @@ class MonthlyPlaylistHandler:
         np.ndarray
             The array of Axes objects in the plot.
         '''
-        df_pl = self.read_monthly_playlists()
+        df_pl = self.df_playlists
         n_years = df_pl['date'].apply(lambda x: x.year).nunique()
         min_year = df_pl['date'].apply(lambda x: x.year).min()
         n_months = df_pl['date'].apply(lambda x: x.month).nunique()  # should be 12 but this covers the special case of a new user with less than a years data
@@ -917,7 +1485,10 @@ class MonthlyPlaylistHandler:
                 else:
                     y, m = col_i, row_i
                 date = f'{min_year+y}-{m+1:02d}-01'
-                im = self.get_playlist_cover_image(playlist_date=date, errors='ignore')
+                try:
+                    im = self.playlist_cover_image(date)
+                except FileNotFoundError:
+                    im = None
                 if im is not None:
                     ax.imshow(self._centre_square_crop(im))
 
@@ -928,524 +1499,84 @@ class MonthlyPlaylistHandler:
         return fig, axes
     
     @staticmethod
-    def _centre_square_crop(im):
-        h, w, _ = im.shape
-        if h == w:
-            return im
-        elif h > w:
-            diff = h - w
-            pad1 = diff // 2
-            pad2 = diff - pad1
-            return im[pad1:-pad2, :, :]
-        else:
-            diff = w - h
-            pad1 = diff // 2
-            pad2 = diff - pad1
-            return im[:, pad1:-pad2, :]
-
-    def get_tracks(self, backoff_time: float = 5.0, progress_bar: bool = True,
-                   to_csv: bool = True, date_csv: bool = False) -> pd.DataFrame:
+    def _plot_ranking(df_rank, title = '', 
+                      legend_title = '', legend_style = 'full',
+                      highlight = None, highlight_marker = 'o', highlight_colour = 'r',
+                      marker = 'x', cmap = 'tab20', marker_colour = 'cmap',
+                      figsize = (20,10), xaxis_pad = pd.Timedelta('30D'),
+                      label_all_yticks = False):
         '''
-        Get all tracks in all monthly playlists.
+        Plot the given ranking timeseries.
 
         Parameters
         ----------
-        backoff_time : float
-            Time in seconds to wait between API calls to avoid rate limiting.
-            Default is 5.0 seconds. Only applies for playlists that require more than 1 call (i.e., playlists with more than 100 tracks).
-        progress_bar : bool
-            If True (default), will display a progress bar while fetching data. Note rate estimates
-            may be inaccurate if backoff_time is large.
-        to_csv : bool
-            If True, will save the resulting pd.DataFrame as a CSV in the data directory.
-        date_csv : bool
-            If True, the saved CSV will have the date of data collection in the filename. Set to
-            True to avoid overwriting previous files.
+        df_rank : pandas.DataFrame
+            The processed ranking data to plot. Should have an index of dates and columns of the
+            item being ranked (e.g. artists, genres, supergenres)
+        legend_title : str
+            Title for the legend. Ignored if legend_style is None.
+        legend_style : {'full', 'partial', None}.
+            The style of the legend. 
+                'full': all columns will be labelled. 
+                'partial': only the highlighted column will be labelled.
+                `None`: no legend. 
+        highlight : str, optional
+            The column to highlight.
+        highlight_marker : str, optional
+            The marker to use for the highlighted column.
+        highlight_colour : str, optional
+            The colour to use for the highlighted column.
+        marker : str, optional
+            The marker to use for the non-highlighted columns.
+        cmap : str
+            The colormap to use for the non-highlighted values. Must be a recognised matplotlib colourmap.
+        marker_colour : str, optional
+            The colour to use for the non-highlighted columns. If 'cmap' (default), 
+            will use the colour from the colormap.
+        figsize : tuple
+            The size of the figure.
+        xaxis_pad : pandas.Timedelta
+            The amount of padding to add to either side of the xaxis, in units of time.
+        label_all_yticks : bool
+            If True, labels all yticks. Can get messy with large numbers of columns.
 
         Returns
         -------
-        pandas.DataFrame
-            A DataFrame containing all tracks in all monthly playlists, with one row per artist per track
-        '''
-
-        df_mpls = self.read_monthly_playlists(download_if_required=True)
-
-        track_data = dict(
-            track_name = [],
-            track_artist = [],
-            track_date_added = [],
-            playlist_id = [],
-            playlist_name = [],
-            track_index = [],  # 0-indexed position in the playlist
-            track_artist_index = [],  # 0-indexed order of artist on the track
-            track_artist_spid = [],
-            track_album = [],
-            track_release_date = [],
-            track_release_date_precision = [],
-            track_duration = [],
-            track_popularity = [],  # note this will change over time, as it depends on number of listens and how recent those listens are
-            track_external_ids = [],  # probably not useful
-            track_spid = []
-        )
-        artist_ids = set()
-
-
-        # get track info for all monthly playlists
-        for id, playlist_data in tqdm(df_mpls.iterrows(), total=len(df_mpls), disable=not progress_bar):
-            n_calls = np.ceil(playlist_data['n_tracks'] / 100)
-
-            for call in range(int(n_calls)):
-                if call > 0:
-                    time.sleep(backoff_time)  # shhh little spotify api client. do not complain. it will all be ok. just rest.
-
-                pl_mth = self.spotify_client.playlist_items(id, limit=100, offset=call*100)
-
-                # iterate through tracks
-                for track_i, track in enumerate(pl_mth['items']):
-
-                    # iterate through each track's artists (can have multiple)
-                    for artist_i, artist in enumerate(track['track']['artists']):
-                        # append all data to lists:
-                        # playlist info
-                        track_data['playlist_id'].append(id)
-                        track_data['playlist_name'].append(df_mpls.loc[id, 'name'])
-                        track_data['track_index'].append(track_i + call*100)
-
-                        # track name, album, artists
-                        track_data['track_date_added'].append(track['added_at'])
-                        track_data['track_name'].append(track['track']['name'])
-                        track_data['track_artist'].append(artist['name'])
-                        track_data['track_artist_index'].append(artist_i)
-                        track_data['track_artist_spid'].append(artist['id'])
-                        track_data['track_album'].append(track['track']['album']['name'])
-
-                        # extract artist id for bulk requests later
-                        artist_ids.add(artist['id'])
-
-                        # track info
-                        track_data['track_release_date'].append(track['track']['album']['release_date'])
-                        track_data['track_release_date_precision'].append(track['track']['album']['release_date_precision'])
-                        track_data['track_popularity'].append(track['track']['popularity'])
-                        track_data['track_duration'].append(track['track']['duration_ms'])
-                        track_data['track_external_ids'].append(track['track']['external_ids'])
-                        track_data['track_spid'].append(track['track']['id'])
-
-        artist_genres = dict()
-        artist_popularities = dict()
-
-        # get artist data in blocks of 50
-        artist_ids_list = list(artist_ids)
-        for i in tqdm(range(0, len(artist_ids), 50)):
-            artist_block = artist_ids_list[i:i+50]
-            artists_expanded = self.spotify_client.artists(artist_block)
-            time.sleep(0.1)  # catnap
-            for artist in artists_expanded['artists']:
-                artist_genres[artist['id']] = artist['genres']
-                artist_popularities[artist['id']] = artist['popularity']
-
-
-        df_tracks = pd.DataFrame(track_data)
-        df_tracks['track_date_added'] = pd.to_datetime(df_tracks['track_date_added'])
-        df_tracks['track_artist_genres'] = df_tracks['track_artist_spid'].map(lambda name: artist_genres.get(name, []))
-        df_tracks['track_artist_popularity'] = df_tracks['track_artist_spid'].map(lambda name: artist_popularities.get(name, np.nan))
-
-        def format_release_date(date):
-            if date == '0000':
-                return pd.NA
-            if len(date) == 4:
-                return date + '-01-01'
-            elif len(date) == 7:
-                return date + '-01'
-            else:
-                return date
-        df_tracks['track_release_date'] = pd.to_datetime(df_tracks['track_release_date'].apply(format_release_date))
-
-        if to_csv:
-            if date_csv:
-                filename = f'tracks_{str(datetime.datetime.now().date())}.csv'
-            else:
-                filename = 'tracks.csv'
-            df_tracks.to_csv(
-                os.path.join(self.data_dir, filename),
-                index=False
-            )
-        return df_tracks
-
-    def read_tracks(self, date = None, download_if_required = False) -> pd.DataFrame:
-        '''
-        Read a saved DataFrame of all tracks in all monthly playlists.
-
-        Parameters
-        ----------
-        date : str or datetime.date
-            The date the data was collected. If None, will attempt to read the undated file,
-            which is assumed to be the most recent. If the undated file does not exist,
-            will read the most recent dated file.
-            If the date is specified as a string, it should be given in the form YYYY-MM-DD.
-
-        download_if_required : bool
-            If True, will download the data using `get_tracks()` if the requested
-            file does not exist.
-            If False (default), will raise a FileNotFoundError if the requested file does not exist.
-
-        Returns
-        -------
-        pandas.DataFrame
+        fig, ax
         '''
         
-        if date is None:
-            file = 'tracks.csv'
-        elif isinstance(date, datetime.date):
-            file = f'tracks_{str(date.date())}.csv'
-        elif isinstance(date, str):
-            file = f'tracks_{date}.csv'
-        else:
-            raise ValueError(f'Unexpected type "{type(date)}" for date input encountered. Try entering date as either a string (YYYY-MM-DD) or datetime.date.')
-        
-        if not os.path.exists(os.path.join(self.data_dir, file)):
-            if download_if_required:
-                if date is None:
-                    df = self.get_tracks(to_csv=True)
-                else:
-                    raise FileNotFoundError(f'File {file} does not exist in data directory {self.data_dir}. Cannot download data for a specific date.')
-            else:
-                raise FileNotFoundError(f'File {file} does not exist in data directory {self.data_dir}. Set download_if_required=True to download the data.')
-        else:
-            df = pd.read_csv(
-                os.path.join(self.data_dir, file), 
-            )
-            df['track_date_added'] = pd.to_datetime(df['track_date_added'])
-            df['track_release_date'] = pd.to_datetime(df['track_release_date'])
-        
-        return df
+        if highlight == None:
+            highlight = ''
 
-    @property
-    def df_tracks(self) -> pd.DataFrame:
-        '''
-        Shortcut to read the most recent tracks DataFrame.
-
-        Returns
-        -------
-        pandas.DataFrame
-            The most recently saved DataFrame of all tracks in all monthly playlists.
-        '''
-        return self.read_tracks(download_if_required=True)
-    
-    @property
-    def df_pl(self) -> pd.DataFrame:
-        '''
-        Shortcut to read the most recent monthly playlists DataFrame.
-
-        Returns
-        -------
-        pandas.DataFrame
-            The most recently saved DataFrame of all monthly playlists.
-        '''
-        return self.read_monthly_playlists(download_if_required=True)
-
-    @property
-    def ids(self) -> list:
-        '''
-        Get a list of all monthly playlist IDs.
-
-        Returns
-        -------
-        list
-            A list of all monthly playlist Spotify IDs.
-        '''
-        df_pl = self.read_monthly_playlists(download_if_required=False)
-        return df_pl.index.tolist()
-    
-    @property
-    def ids_to_dates(self) -> dict:
-        '''
-        Dictionary mapping all monthly playlist IDs to their dates.
-
-        Returns
-        -------
-        dict
-            A dictionary mapping all monthly playlist IDs to their dates.
-        '''
-        df_pl = self.read_monthly_playlists(download_if_required=False)
-        return df_pl['date'].to_dict()
-
-    @property
-    def ids_to_names(self) -> dict:
-        '''
-        Dictionary mapping all monthly playlist IDs to their names.
-
-        Returns
-        -------
-        dict
-            A dictionary mapping all monthly playlist IDs to their names.
-        '''
-        df_pl = self.read_monthly_playlists(download_if_required=False)
-        return df_pl['name'].to_dict()
-    
-    @property
-    def names_to_ids(self) -> dict:
-        '''
-        Dictionary mapping all monthly playlist names to their IDs.
-
-        Returns
-        -------
-        dict
-            A dictionary mapping all monthly playlist names to their IDs.
-        '''
-        df_pl = self.read_monthly_playlists(download_if_required=False)
-        return df_pl.reset_index().set_index('name')['id'].to_dict()
-    
-    @property
-    def dates_to_ids(self) -> dict:
-        '''
-        Dictionary mapping all monthly playlist dates to their IDs.
-
-        Returns
-        -------
-        dict
-            A dictionary mapping all monthly playlist dates to their IDs.
-        '''
-        df_pl = self.read_monthly_playlists(download_if_required=False)
-        return df_pl.reset_index().set_index('date')['id'].to_dict()
-    
-    @property
-    def genres(self) -> np.ndarray:
-        '''
-        Set of genres present in all monthly playlists
-
-        Returns
-        -------
-        set
-            A set of all genres present in all monthly playlists.
-        '''
-        return np.array(list(set(genre for genres in self.df_tracks['track_artist_genres'] for genre in eval(genres))))
-
-    @property
-    def supergenres(self) -> np.ndarray:
-        return np.array(list(self.supergenre_lists.keys()))
-
-    @property
-    def artists(self) -> np.ndarray:
-        '''
-        Set of artists present in all monthly playlists
-
-        Returns
-        -------
-        np.ndarray
-            An array of all artists present in all monthly playlists.
-        '''
-        return self.df_tracks['track_artist'].unique()
-
-    @property
-    def artist_counts(self) -> pd.Series:
-        '''
-        Series of artist name: number of times that artist appears in `df_tracks`.
-
-        Returns
-        -------
-        pd.Series
-        '''
-        return self.df_tracks['track_artist'].value_counts()
-
-    @property
-    def dates(self) -> np.ndarray:
-        '''
-        Dates of all playlists present in the downloaded playlists.csv file
-
-        Returns
-        -------
-        np.ndarray
-            An array of the dates (months) the monthly playlist data covers
-        '''
-        return self.df_pl['date'].unique()
-    
-    @property
-    def artist_timeseries(self) -> pd.DataFrame:
-        '''
-        A dataframe with index of playlist dates, and columns of artists, with
-        values showing how many tracks by/featuring that artist are present in the given months playlist.
-
-        Returns
-        -------
-        pd.DataFrame
-        '''
-        df = self.df_tracks.groupby('playlist_id')['track_artist'].value_counts().reset_index().pivot(
-            columns = 'track_artist', index = 'playlist_id',values = 'count'
-        ).fillna(0)
-
-        df.index = df.index.map(self.ids_to_dates).set_names('playlist_date')
-        return df.sort_index()
-    
-    def tracks_with_artist_genre(self, genre, comparison_type = 'exact', *, supergenre = False):
-        '''
-        Get all tracks in the monthly playlists that have a given artist genre. The artist genre can
-        be a genre (default) or, if `supergenre = True`, a supergenre as specified in `supergenre_lists`.
-
-        Parameters
-        ----------
-        genre : str
-            The genre to search for. Should be one of the available genres (see `genres`) or 
-            a supergenre (`supergenres`).
-        comparison_type : {'exact', 'like'}
-            How to compare the given genre string to the genre list. Defaults to 'exact'. Ignored when `supergenre = True`
-            - 'exact': Only return tracks with an exact match of the given genre.
-            - 'like': Return any track where `genre` is a substring of one or more of the track's artist genres.
-                      Useful for finding similar genres (e.g. 'hip-hop' and 'old school hip-hop')
-        supergenre : bool, optional
-            Whether or not the given genre should be interpreted as a supergenre. Defaults to False.
-        '''
-        if supergenre:
-            find_fn = lambda x: genre.upper() in [self.supergenre_map[i] for i in x]
-        else:
-            if comparison_type == 'exact':
-                find_fn = lambda x: genre.lower() in x
-            elif comparison_type == 'like':
-                find_fn = lambda x: genre.lower() in ','.join(x)
-
-        return self.df_tracks.loc[self.df_tracks['track_artist_genres'].apply(find_fn)]
-        
-    def n_tracks_with_artist_genre(self, genre, comparison_type = 'exact', supergenre = False):
-        '''
-        The number of tracks in the monthly playlists that have a given artist genre. The artist genre can
-        be a genre (default) or, if `supergenre = True`, a supergenre as specified in `supergenre_lists`.
-
-        Parameters
-        ----------
-        genre : str
-            The genre to search for. Should be one of the available genres (see `genres`) or 
-            a supergenre (`supergenres`).
-        comparison_type : {'exact', 'like'}
-            How to compare the given genre string to the genre list. Defaults to 'exact'. Ignored when `supergenre = True`
-            - 'exact': Only return tracks with an exact match of the given genre.
-            - 'like': Return any track where `genre` is a substring of one or more of the track's artist genres.
-                      Useful for finding similar genres (e.g. 'hip-hop' and 'old school hip-hop')
-        supergenre : bool, optional
-            Whether or not the given genre should be interpreted as a supergenre. Defaults to False.
-        '''
-        return self.tracks_with_artist_genre(genre, comparison_type, supergenre = supergenre).groupby('track_index').ngroups
-    
-    @property
-    def genre_track_counts(self):
-        '''
-        Get the number of tracks of each genre.
-
-        Returns
-        -------
-        pd.Series
-            Series of track counts indexed by genre names
-        '''
-        return pd.Series({genre: self.n_tracks_with_artist_genre(genre, 'exact') for genre in self.genres}).sort_values(ascending=False)
-    
-    @property
-    def supergenre_track_counts(self):
-        '''
-        Get the number of tracks of each supergenre, as defined in `supergenre_lists`.
-
-        Returns
-        -------
-        pd.Series
-            Series of track counts indexed by supergenre names
-        '''
-        return pd.Series({genre: self.n_tracks_with_artist_genre(genre, 'exact', supergenre=True) for genre in self.supergenres}).sort_values(ascending=False)
-
-    def plot_supergenres(self,
-                    highlight = 'funk', 
-                    xaxis_pad = pd.Timedelta('30D')):
-        
-
-        ################################################## FLATTEN ARTIST GENRES ##################################################
-
-        track_cols = [  # excluding columns that specify artists in the aggregation
-            'track_names',  
-            'track_date_added',
-            'playlist_id',
-            'playlist_name',
-            'track_index',
-            'track_album',
-            'track_release_date',
-            'track_release_date_precision',
-            'track_duration',
-            'track_popularities',
-            'track_external_ids',
-            'track_spid'
-        ]
-
-        df_tracks = self.df_tracks
-        df_tracks['track_artist_genres'] = df_tracks['track_artist_genres'].apply(lambda x: eval(x) if isinstance(x, str) else x)
-
-        df_tracks = df_tracks.groupby(track_cols).agg({
-            'track_artist_genres' : lambda x: list(set(x.sum())),
-            'track_artist': lambda x: x.to_list(),
-            'track_artist_spid' : lambda x: x.to_list(),
-            'track_artist_popularity' : lambda x: x.to_list(),
-        }).sort_index(
-            level = 'track_date_added', 
-            ascending=False
-        ).reset_index()
-
-
-        ###################################################### ONE HOT ENCODE ######################################################    
-        genres = sorted(list(self.supergenre_lists.keys()))
-        agg_fn = lambda x: genre in [self.supergenre_map[i] for i in x]
-
-        cols = []
-        for genre in genres:
-            ser = df_tracks['track_artist_genres'].apply(agg_fn)
-            ser.name = genre
-            cols.append(ser)
-            
-        df_tracks = pd.concat([df_tracks, pd.concat(cols, axis = 1)], axis = 1)
-
-
-        ######################################################## SUM BY MONTH ########################################################    
-
-        # genre sums in each playlist
-        df_genres = df_tracks.groupby('playlist_id')[genres].agg(lambda x: sum(x))  # /len(x))  # no percentages!
-        df_genres.index = df_genres.index.map(self.ids_to_dates).set_names('playlist_date')
-        df_genres.sort_index(inplace=True)
-
-        ############################################### CALCULATE RANKS IN EACH MONTH ###############################################    
-        df_rank = df_genres.replace(0, pd.NA).rank(
-            ascending=False, 
-            method = 'first', 
-            na_option='keep',
-            axis = 1
-        ).sort_values(
-            axis = 1, 
-            by = df_genres.index.values[1],
-            ascending=True
-        )
-        
-        ########################################################### PLOT ###########################################################    
-        fig, ax = plt.subplots(figsize = (20,5))
+        # Plot =) 
+        fig, ax = plt.subplots(figsize = figsize)
         cmap = plt.get_cmap('tab20')
 
         for i, col in enumerate(df_rank):
-            if col == highlight.upper():
+            if col.lower() == highlight.lower():
                 ax.plot(
                     df_rank[col], 
-                    color = 'r', 
+                    color = highlight_colour, 
                     label = col,
                     linestyle = 'None', 
-                    marker = 'o',
+                    marker = highlight_marker
                 )
             else:
                 ax.plot(
                     df_rank[col], 
-                    color = cmap(i), 
-                    label = col, 
-                    alpha = 0.7,
+                    color = cmap(i) if marker_colour == 'cmap' else marker_colour, 
+                    label = col if legend_style.lower() == 'full' else None, 
+                    alpha = 1 if highlight == '' else 0.7,
                     linestyle = 'None', 
-                    marker = 'x'
+                    marker = marker
                 )
+        if label_all_yticks:
+            ax.set_yticks(range(1,int(np.max(df_rank) + 1)))
 
-        ax.set_yticks(range(1,19))
-
-
-        ax.set_xlim(df_genres.index.min() - xaxis_pad, df_genres.index.max() + xaxis_pad)
+        ax.set_xlim(df_rank.index.min() - xaxis_pad, df_rank.index.max() + xaxis_pad)
         ax.invert_yaxis()
-        ax.legend(bbox_to_anchor = (1, 0.95), title = 'Genres')
-        #ax.set_title('Genre ranking timeseries')
+        if legend_style.lower() in ('full', 'partial'):
+            ax.legend(bbox_to_anchor = (1, 0.95), title = legend_title)
         ax.set_xlabel('Month')
         ax.set_ylabel('Rank')
         fig.set_constrained_layout(True)
@@ -1457,8 +1588,114 @@ class MonthlyPlaylistHandler:
         ax.spines['left'].set_visible(False)
 
         ax.xaxis.set_minor_locator(m_dates.MonthLocator())
+        ax.set_title(title, fontsize = 15)
 
-        plt.show()    
+        return fig, ax
+
+    def plot_genres_rank(self, *,
+                         supergenre = True,
+                         highlight = None, 
+                         figsize = (20,5),
+                         xaxis_pad = pd.Timedelta('30D')):
+        '''
+        Plot the ranking of each genre against time. Ranking of a genre is calculated using the number of
+        songs by/featuring an artist that plays that genre in each month's playlist.
+
+        Parameters
+        ----------
+        supergenre : bool
+            Whether to aggregate the genres using the supergenre definitions. Setting to False is not recommended,
+            as the large number of base genres makes the plot hard to interpret.
+        highlight : str, optional
+            The name of the genre/supergenre to highlight in red.
+        figsize : tuple
+            The size of the figure, in inches.
+        xaxis_pad : pandas.Timedelta
+            The amount of padding to add to either side of the xaxis, in units of time.
+        '''
+
+        if highlight == None:
+            highlight = ''
+            alpha = 1
+        else:
+            alpha = 0.7
+
+        df_genres = self.genre_timeseries(supergenre=supergenre)
+
+        # Calculate ranks in each month
+        df_rank = df_genres.replace(0, pd.NA).rank(
+            ascending=False, 
+            method = 'first', 
+            na_option='keep',
+            axis = 1
+        ).sort_values(
+            axis = 1, 
+            by = df_genres.index.values[0],
+            ascending=True
+        )
+
+        return self._plot_ranking(
+            df_rank,
+            title = f'{"super" if supergenre else ''}genre rankings'.capitalize(),
+            legend_title = f'{"Super" if supergenre else ''}genres'.capitalize(),
+            legend_style = 'full' if supergenre else 'partial',
+            marker_colour = 'cmap' if supergenre else 'tab:cyan',
+            highlight=highlight,
+            figsize=figsize,
+            xaxis_pad=xaxis_pad,
+            label_all_yticks=supergenre
+        )
+
+    def plot_artists_rank(self, *,
+                         highlight = None, 
+                         figsize = (25,5),
+                         xaxis_pad = pd.Timedelta('30D')):
+        '''
+        Plot the ranking of each artist against time. Ranking of an artist is calculated using the number of
+        songs by/featuring that artist each month's playlist.
+
+        Parameters
+        ----------
+        highlight : str, optional
+            The name of the genre/supergenre to highlight in red.
+        figsize : tuple
+            The size of the figure, in inches.
+        xaxis_pad : pandas.Timedelta
+            The amount of padding to add to either side of the xaxis, in units of time.
+        '''
+
+        if highlight == None:
+            highlight = ''
+            alpha = 1
+        else:
+            alpha = 0.7
+
+        df_artists = self.artist_timeseries()
+
+        # Calculate ranks in each month
+        df_rank = df_artists.replace(0, pd.NA).rank(
+            ascending=False, 
+            method = 'first', 
+            na_option='keep',
+            axis = 1
+        ).sort_values(
+            axis = 1, 
+            by = df_artists.index.values[0],
+            ascending=True
+        )
+
+        return self._plot_ranking(
+            df_rank,
+            title = 'Artist rankings',
+            legend_title = 'Artists',
+            legend_style = 'partial',
+            marker_colour = 'tab:cyan',
+            marker = 'o',
+            highlight=highlight,
+            figsize=figsize,
+            xaxis_pad=xaxis_pad,
+            label_all_yticks=False
+        )
 
 class LoggingSpotifyClient(spotipy.Spotify):
     '''
@@ -1649,7 +1886,7 @@ class MonthlyPlaylist:
             else:
                 raise ValueError(f'Unidentified identifier type "{identifier}" encountered.')
         
-        df_mpls = MonthlyPlaylistHandler().read_monthly_playlists()
+        df_mpls = MonthlyPlaylistHandler().df_playlists
         if sp_id:
             data = df_mpls.loc[sp_id]
         elif date:
@@ -1661,7 +1898,8 @@ class MonthlyPlaylist:
             setattr(self, item, data[item])
         self.sp_id = data.name
 
-    def _identify_identifier(self, identifier):
+    @classmethod
+    def _identify_identifier(cls, identifier):
         '''Identify whether a given identifier is a spotfy id, date, or playlist name.'''
         
         if isinstance(identifier, (datetime.date, datetime.datetime)):

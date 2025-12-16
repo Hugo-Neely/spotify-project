@@ -13,3 +13,6 @@ scikit-optimize
 oauthlib
 pytest
 tqdm
+statsmodels
+scikit-learn
+duckdb
