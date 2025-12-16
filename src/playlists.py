@@ -230,7 +230,7 @@ class MonthlyPlaylistHandler:
         # save
         df.to_csv(self.playlists_file, index = True)
 
-    def download_playlist_cover_image(self, *args, playlist_id:str = None, playlist_date:Union[str, datetime.date] = None,
+    def download_playlist_cover_image(self, identifier:Union[str, datetime.date],
                                       overwrite:bool = True, errors:str = 'raise'):
         '''
         Download the cover image for a monthly playlist, either by its Spotify ID or date.
@@ -239,11 +239,8 @@ class MonthlyPlaylistHandler:
 
         Parameters
         ----------
-        playlist_id : str, optional
-            The Spotify ID of the playlist. If None, playlist_date must be provided.
-        playlist_date : str or datetime.date, optional
-            The date of the playlist. If a string, should be in the form YYYY-MM-DD.
-            If None, playlist_id must be provided.
+        identifier : str or datetime.date
+            The identifier of the playlist - either a spotify playlist ID, date, or playlist name.
         overwrite : bool
             If True (default), will try to download the image even if it already exists. If False,
             will skip downloading if the file has already been saved and return the saved image.
@@ -256,39 +253,9 @@ class MonthlyPlaylistHandler:
         np.ndarray
             The cover image as a numpy array, or None if no cover image exists.
         '''
-        if args:
-            if len(args) == 1:
-                playlist_id = self.convert_playlist_identifier(args[0])
-            else:
-                raise ValueError('Only one positional argument is accepted, either playlist_id or playlist_date.')
 
-
-        # check inputs are valid
-        if (playlist_id is None) and (playlist_date is None):
-            raise ValueError('Must provide either playlist_id or playlist_date.')
-        if (playlist_id is not None) and (playlist_date is not None):
-            raise ValueError('Must provide only one of playlist_id or playlist_date.')
-        
-        if isinstance(playlist_date, str):
-            playlist_date = pd.to_datetime(playlist_date).date()
-        
-        # get ID from date
-        if playlist_date is not None:
-            try:
-                playlist_id = self.playlist_dates_to_ids[playlist_date]
-            except ValueError as e:
-                if errors == 'ignore':
-                    return
-                else:
-                    raise e
-        elif playlist_id is not None:
-            try:
-                playlist_date = self.playlist_ids_to_dates[playlist_id]
-            except ValueError as e:
-                if errors == 'ignore':
-                    return
-                else:
-                    raise e
+        playlist_date = self.convert_playlist_identifier(identifier, 'date')
+        playlist_id = self.convert_playlist_identifier(identifier, 'id')
         
         # check if image already exists, and return if so
         save_path = os.path.join(self.data_dir, 'imgs', f'cover_{playlist_date.year}_{playlist_date.month:02d}.jpeg')
