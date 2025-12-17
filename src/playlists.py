@@ -304,7 +304,7 @@ class MonthlyPlaylistHandler:
         '''
         for playlist_id in self.playlist_ids:
             self.download_playlist_cover_image(
-                playlist_id=playlist_id, 
+                identifier=playlist_id,
                 overwrite=overwrite, 
                 errors = errors
             )
@@ -667,7 +667,7 @@ class MonthlyPlaylistHandler:
         if identifier == 'all':
             df = self.sql(f'''
                     SELECT 
-                        strptime(CONCAT(filename[65:71],'_01'), '%Y_%m_%d') as playlist_id,
+                        strptime(CONCAT(filename[-11:-5],'_01'), '%Y_%m_%d') as playlist_id,
                         id,
                         date_added, 
                         track
@@ -1000,7 +1000,7 @@ class MonthlyPlaylistHandler:
         playlists AS (
         SELECT 
             track, 
-            strptime(CONCAT(filename[65:71],'_01'), '%Y_%m_%d') as playlist_date 
+            strptime(CONCAT(filename[-11:-5],'_01'), '%Y_%m_%d') as playlist_date
         FROM read_csv('{self.mpl_dir}/*.csv', filename = true)
         ),
 
@@ -1125,7 +1125,7 @@ class MonthlyPlaylistHandler:
                         FROM (
                             SELECT 
                                 track, 
-                                CONCAT(filename[65:71],'_01') as playlist_date 
+                                CONCAT(filename[-11:-5],'_01') as playlist_date 
                             FROM read_csv('{self.mpl_dir}/*.csv', filename = true)
                         ) pls
                         LEFT JOIN artist_genres ag
@@ -1331,7 +1331,7 @@ class MonthlyPlaylistHandler:
             playlists AS (
             SELECT 
                 track, 
-                strptime(CONCAT(filename[65:71],'_01'), '%Y_%m_%d') as playlist_date 
+                strptime(CONCAT(filename[-11:-5],'_01'), '%Y_%m_%d') as playlist_id
             FROM read_csv('{self.mpl_dir}/{pl_fname}', filename = true)
             ),
 
