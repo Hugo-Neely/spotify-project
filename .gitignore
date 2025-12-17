@@ -2,7 +2,7 @@
 *.DS_store
 *.env
 *.cache
-*/__pycache__
+*__pycache__
 */.pytest_cache
 data/imgs/*
 data/logs/*

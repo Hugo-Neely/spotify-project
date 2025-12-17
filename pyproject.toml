@@ -18,10 +18,14 @@ description = "Tidy side project to poke into my Spotify history."
 [project.optional-dependencies]
 test = ["pytest"]
 
-[tool.pytest.ini_options]
+[tool.pytest]
+testpaths = [
+  "tests"
+]
 pythonpath = [
   "src"
 ]
+addopts = ["--import-mode=importlib"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
