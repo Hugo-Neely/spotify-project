@@ -1,6 +1,5 @@
 import os
 import spotipy
-from spotipy.oauth2 import SpotifyOAuth
 import pandas as pd
 import time
 import datetime
@@ -18,7 +17,7 @@ import duckdb
 # warning begone 🪄
 pd.set_option('future.no_silent_downcasting', True)
 
-# max number of artists to be stored in tracks.csv. If a track has more artists than this, the getting function will error
+# default max number of artists to be stored in tracks.csv. Will be expanded if more artists are found on a track.
 N_ARTISTS_MAX = 10
 
 # ensure data directory is set up as expected

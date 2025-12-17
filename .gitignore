@@ -9,3 +9,9 @@ data/logs/*
 data/mpls/*
 data/*.csv
 prototyping.ipynb
+
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+*.egg-info/

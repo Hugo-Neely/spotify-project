@@ -1,5 +1,5 @@
 import os
-from playlists import MonthlyPlaylistHandler
+from src.playlists import MonthlyPlaylistHandler
 from spotipy import Spotify, SpotifyOAuth
 import pytest
 
