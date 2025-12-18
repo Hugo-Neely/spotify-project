@@ -3,9 +3,25 @@ from spmpls.playlists import MonthlyPlaylistHandler, LoggingSpotifyClient, DATA_
 from spotipy import Spotify, SpotifyOAuth
 import pytest
 
-def test_placeholder():
-    assert True
-    # placeholder while i refactor tests :) 
+def ensure_data_present():
+    '''If data is not present, download it. Otherwise, work with what we have.'''
+    
+    mpl = MonthlyPlaylistHandler()
+
+    for file in ['playlists', 'imgs', 'mpls', 'artists', 'artist_genres', 'tracks']:
+        try:
+            mpl.check_downloaded(file)
+        except FileNotFoundError:
+            mpl.download(file)
+    
+def test_download():
+    pass
+
+def test_file_read():
+    pass
+
+def test_timeseries():
+    pass
 
 @pytest.fixture(autouse=True)
 def clean():
