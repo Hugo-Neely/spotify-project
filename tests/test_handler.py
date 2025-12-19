@@ -3,25 +3,12 @@ from spmpls.playlists import MonthlyPlaylistHandler
 import pytest
 from dotenv import load_dotenv
 
-@pytest.fixture(autouse=True)
-def ensure_downlaoded(request):
-    '''Ensure data is downloaded'''
-
-    if 'nodownload' in request.keywords:
-        return
-    
-    mpl = MonthlyPlaylistHandler()
-
-    for file in ['playlists', 'imgs', 'mpls', 'artists', 'artist_genres', 'tracks']:
-        try:
-            mpl.check_downloaded(file)
-        except FileNotFoundError:
-            mpl.download(file)
-
-
-@pytest.fixture(autouse=True)
-def load_env():
-    '''Load spotipy environment variables'''
+@pytest.fixture(scope = 'session', autouse=True)
+def setup():
+    '''
+    Tests the MonthlyPlaylistHandler's ability to download the expected files, and to successfully delete them.
+    As part of this, ensures the required environment variables are present.
+    '''
 
     load_dotenv()
 
@@ -29,43 +16,39 @@ def load_env():
     assert os.getenv('SPOTIPY_CLIENT_SECRET'), "SPOTIPY_CLIENT_SECRET not found in environment variables."
     assert os.getenv('SPOTIPY_REDIRECT_URI'), "SPOTIPY_REDIRECT_URI not found in environment variables."
 
-@pytest.mark.nodownload
-def test_download():
-    '''
-    Tests the MonthlyPlaylistHandler's ability to download the expected files, and to successfully delete them.
-    '''
-    
     mpl = MonthlyPlaylistHandler()
 
     mpl._remove_downloads(yes_im_sure=True)
     data_dir_contents = os.listdir(mpl.data_dir)
     
     # assert all data has been removed
-    assert 'playlists.csv' not in data_dir_contents
-    assert 'artist_genres.csv' not in data_dir_contents
-    assert 'artists.csv' not in data_dir_contents
-    assert 'tracks.csv' not in data_dir_contents
-    assert len(os.listdir(mpl.img_dir)) == 0
-    assert len(os.listdir(mpl.mpl_dir)) == 0
+    assert 'playlists.csv' not in data_dir_contents, "playlists.csv not deleted correctly"
+    assert 'artist_genres.csv' not in data_dir_contents, "artist_genres.csv not deleted correctly"
+    assert 'artists.csv' not in data_dir_contents, "artists.csv not deleted correctly"
+    assert 'tracks.csv' not in data_dir_contents, "tracks.csv not deleted correctly"
+    assert len(os.listdir(mpl.img_dir)) == 0, "imgs directory not deleted correctly"
+    assert len(os.listdir(mpl.mpl_dir)) == 0, "mpls directory not deleted correctly"
 
     # should download all data
     mpl.download()
 
-    assert mpl.check_downloaded('playlists')
-    assert mpl.check_downloaded('playlists.csv')
+    assert mpl.check_downloaded('playlists'), "playlists not downloaded properly"
+    assert mpl.check_downloaded('playlists.csv'), "playlists.csv not downloaded properly"
 
-    assert mpl.check_downloaded('artist_genres')
-    assert mpl.check_downloaded('artist_genres.csv')
+    assert mpl.check_downloaded('artist_genres'), "artist_genres not downloaded properly"
+    assert mpl.check_downloaded('artist_genres.csv'), "artist_genres.csv not recognised properly"
 
-    assert mpl.check_downloaded('artists')
-    assert mpl.check_downloaded('artists.csv')
+    assert mpl.check_downloaded('artists'), " not downloaded properly"
+    assert mpl.check_downloaded('artists.csv'), " not downloaded properly"
 
-    assert mpl.check_downloaded('tracks')
-    assert mpl.check_downloaded('tracks.csv')
+    assert mpl.check_downloaded('tracks'), "tracks not downloaded properly"
+    assert mpl.check_downloaded('tracks.csv'), "tracks.csv not recognised properly"
 
     # don't have a master list of playlist-specific files, so have to settle for checking the directories aren't empty
-    assert mpl.check_downloaded('mpls')
-    assert mpl.check_downloaded('imgs')
+    assert mpl.check_downloaded('mpls'), "mpls not downloaded properly"
+    assert mpl.check_downloaded('imgs'), "imgs not downloaded properly"
+
+    return
 
 def test_df_artists():
     '''
