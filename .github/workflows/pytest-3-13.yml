@@ -30,4 +30,4 @@ jobs:
         SPOTIPY_CLIENT_SECRET: ${{secrets.SP_API_SECRET}}
         SPOTIPY_REDIRECT_URI: ${{secrets.SPI_API_URI}}
       run: |
-        pixi run --environment test pytest
+        pixi run --environment test pytest -s
