@@ -15,3 +15,7 @@ prototyping.ipynb
 !.pixi/config.toml
 
 *.egg-info/
+
+*.vscode
+*.pytest_cache
+*.vscode/settings.json
