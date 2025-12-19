@@ -26,6 +26,9 @@ pythonpath = [
   "src"
 ]
 addopts = ["--import-mode=importlib"]
+markers = [
+  "nodownload: don't download data"
+]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
@@ -56,3 +59,4 @@ statsmodels = ">=0.14.6,<0.15"
 scikit-learn = ">=1.8.0,<2"
 duckdb = ">=1.4.3,<2"
 python = ">=3.13.11,<3.14"
+python-dotenv = ">=1.2.1,<2"
