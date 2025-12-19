@@ -2,10 +2,20 @@
 *.DS_store
 *.env
 *.cache
-*/__pycache__
+*__pycache__
 */.pytest_cache
 data/imgs/*
 data/logs/*
 data/mpls/*
 data/*.csv
 prototyping.ipynb
+
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+*.egg-info/
+
+*.vscode
+*.pytest_cache
+*.vscode/settings.json

@@ -1,6 +1,5 @@
 import os
 import spotipy
-from spotipy.oauth2 import SpotifyOAuth
 import pandas as pd
 import time
 import datetime
@@ -18,7 +17,7 @@ import duckdb
 # warning begone 🪄
 pd.set_option('future.no_silent_downcasting', True)
 
-# max number of artists to be stored in tracks.csv. If a track has more artists than this, the getting function will error
+# default max number of artists to be stored in tracks.csv. Will be expanded if more artists are found on a track.
 N_ARTISTS_MAX = 10
 
 # ensure data directory is set up as expected
@@ -216,7 +215,7 @@ class MonthlyPlaylistHandler:
         df['date'] = df['date'].str.replace('-23','-2023')
         df['date'] = df['date'].str.replace('-24','-2024')
         df['date'] = df['date'].apply(lambda x: x[:7])
-        df['date'] = pd.to_datetime(df['date']).dt.date
+        df['date'] = pd.to_datetime(df['date'], format = r'%m-%Y').dt.date
 
         # extract image url
         df['cover_image_url'] = df['images'].apply(lambda x: x[0]['url'] if not pd.isna(x[0]) else x)
@@ -305,7 +304,7 @@ class MonthlyPlaylistHandler:
         '''
         for playlist_id in self.playlist_ids:
             self.download_playlist_cover_image(
-                playlist_id=playlist_id, 
+                identifier=playlist_id,
                 overwrite=overwrite, 
                 errors = errors
             )
@@ -472,24 +471,59 @@ class MonthlyPlaylistHandler:
             index=True
         )
 
-    def download(self, cover_image_kwargs:dict = {}, playlist_contents_kwargs:dict = {}):
+    def download(self, file = 'all', *, cover_image_kwargs:dict = {}, playlist_contents_kwargs:dict = {}):
         '''
         Download all relevant data (playlist metadata, playlist contents, and playlist cover images).
 
         Parameters
         ----------
+        file : {'all', 'imgs', 'mpls', 'artist_genres', 'artists', 'tracks', 'playlists'}
+            The file to download. If 'all', all files will be downloaded. Note that due to
+            how information is packaged on the spotify API, downloading any of 'artists', 'artist_genres',
+            'tracks', or 'mpls' will also download all of the others.
         cover_image_kwargs : dict, optional
             Optional keyword arguments to pass to the `download_playlist_cover_images` method.
         playlist_contents_kwargs : dict, optional
             Optional keyword arguments to pass to the `download_playlist_contents` method.
         '''
 
-        self.download_playlist_metadata()
+        if file == 'all':
+            self.download_playlist_metadata()
+            self.download_playlist_cover_images(**cover_image_kwargs)
+            self.download_playlist_contents(**playlist_contents_kwargs)
+            return
 
-        self.download_playlist_cover_images(**cover_image_kwargs)
-
-        self.download_playlist_contents(**playlist_contents_kwargs)
+        if 'playlists' in file:
+            self.download_playlist_metadata()
+        elif file == 'imgs':
+            self.download_playlist_cover_images(**cover_image_kwargs)
+        elif 'img_' in file:
+            self.download_playlist_cover_image()
+        elif any([fname in file for fname in ('mpl', 'artist', 'tracks')]):
+            self.download_playlist_contents(**playlist_contents_kwargs)
     
+    def _remove_downloads(self, *, yes_im_sure = False):
+        '''
+        Delete downloaded files. Will only do it if you really mean it.
+
+        Parameters
+        ----------
+        yes_im_sure : bool
+            Defaults to False. If True, will remove all downloaded data. Otherwise does nothing.
+        
+        Returns
+        -------
+        True
+        '''
+
+        if yes_im_sure:
+            # ok sure
+            for file in self.data_files + self.mpl_files + self.img_files:
+                if os.path.exists(file):
+                    os.remove(file)
+        
+        return True
+
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     ################################# TABLE PROPERTIES ################################
     @property
@@ -506,8 +540,8 @@ class MonthlyPlaylistHandler:
 
         Parameters
         ----------
-        file : {'all', 'playlists.csv', 'tracks.csv', 'artists.csv', 'artist_genres.csv', 'mpls'}
-            The file to check. Any of the above, or any file from 
+        file : {'all', 'mpls', 'imgs, 'playlists', 'tracks', 'artists', 'artist_genres'}
+            The file to check. Will also accept filenames with the .csv extension, or specific mpl/img files (these must have the .csv extension).
             If 'all' (default), will check for all data files, 
             returning True only if all are present. If 'mpl', will check if 
             the mpl directory (`mpl_dir`) is empty. Will also accept a playlist csv
@@ -533,8 +567,11 @@ class MonthlyPlaylistHandler:
         }
 
         if file == 'all':
-            for file in self.data_files:
-                self.check_downloaded(file)
+            out = True
+            for file in self.data_files +['mpls', 'imgs']:
+                out &= self.check_downloaded(file)
+            
+            return out
         
         if file == 'mpls':
             if len(os.listdir(self.mpl_dir)) == 0:
@@ -570,7 +607,9 @@ class MonthlyPlaylistHandler:
 
         if not os.path.isfile(filepath):
             raise FileNotFoundError(f'{file} not found. Try downloading data with the `.download` method.')
-            
+        else:
+            return True
+    
     @property
     def df_tracks(self) -> pd.DataFrame:
         '''
@@ -668,7 +707,7 @@ class MonthlyPlaylistHandler:
         if identifier == 'all':
             df = self.sql(f'''
                     SELECT 
-                        strptime(CONCAT(filename[65:71],'_01'), '%Y_%m_%d') as playlist_id,
+                        strptime(CONCAT(filename[-11:-5],'_01'), '%Y_%m_%d') as playlist_id,
                         id,
                         date_added, 
                         track
@@ -1001,7 +1040,7 @@ class MonthlyPlaylistHandler:
         playlists AS (
         SELECT 
             track, 
-            strptime(CONCAT(filename[65:71],'_01'), '%Y_%m_%d') as playlist_date 
+            strptime(CONCAT(filename[-11:-5],'_01'), '%Y_%m_%d') as playlist_date
         FROM read_csv('{self.mpl_dir}/*.csv', filename = true)
         ),
 
@@ -1126,7 +1165,7 @@ class MonthlyPlaylistHandler:
                         FROM (
                             SELECT 
                                 track, 
-                                CONCAT(filename[65:71],'_01') as playlist_date 
+                                CONCAT(filename[-11:-5],'_01') as playlist_date 
                             FROM read_csv('{self.mpl_dir}/*.csv', filename = true)
                         ) pls
                         LEFT JOIN artist_genres ag
@@ -1332,7 +1371,7 @@ class MonthlyPlaylistHandler:
             playlists AS (
             SELECT 
                 track, 
-                strptime(CONCAT(filename[65:71],'_01'), '%Y_%m_%d') as playlist_date 
+                strptime(CONCAT(filename[-11:-5],'_01'), '%Y_%m_%d') as playlist_id
             FROM read_csv('{self.mpl_dir}/{pl_fname}', filename = true)
             ),
 

@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spotify-mpls"
+version = "1.0"
+requires-python= ">= 3.12"
+readme = {file = "README.txt", content-type = "text/markdown"}
+authors = [
+  {name = "Hugo Neely", email = "hugo.neely@gmail.com"},
+]
+maintainers = [
+  {name = "Hugo Neely", email = "hugo.neely@gmail.com"},
+]
+description = "Tidy side project to poke into my Spotify history."
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.pytest]
+testpaths = [
+  "tests"
+]
+pythonpath = [
+  "src"
+]
+addopts = ["--import-mode=importlib"]
+markers = [
+  "nodownload: don't download data"
+]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64", "win-64"]
+
+[tool.pixi.pypi-dependencies]
+spotify-mpls = { path = ".", editable = true }
+
+[tool.pixi.environments]
+spotify-mpls = { solve-group = "default" }
+test = { features = ["test"], solve-group = "default" }
+
+[tool.pixi.tasks]
+
+[tool.pixi.dependencies]
+numpy = ">=2.3.5,<3"
+jupyter = ">=1.1.1,<2"
+scipy = ">=1.16.3,<2"
+matplotlib = ">=3.10.8,<4"
+plotly = ">=6.5.0,<7"
+dash = ">=3.3.0,<4"
+pandas = ">=2.3.3,<3"
+spotipy = ">=2.25.0,<3"
+pytorch = ">=2.9.1,<3"
+scikit-optimize = ">=0.10.2,<0.11"
+tqdm = ">=4.67.1,<5"
+statsmodels = ">=0.14.6,<0.15"
+scikit-learn = ">=1.8.0,<2"
+duckdb = ">=1.4.3,<2"
+python = ">=3.13.11,<3.14"
+python-dotenv = ">=1.2.1,<2"
