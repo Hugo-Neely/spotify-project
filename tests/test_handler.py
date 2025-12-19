@@ -1,4 +1,5 @@
 import os
+import json
 from spmpls.playlists import MonthlyPlaylistHandler
 import pytest
 from dotenv import load_dotenv
@@ -15,6 +16,19 @@ def setup():
     assert os.getenv('SPOTIPY_CLIENT_ID'), "SPOTIPY_CLIENT_ID not found in environment variables."
     assert os.getenv('SPOTIPY_CLIENT_SECRET'), "SPOTIPY_CLIENT_SECRET not found in environment variables."
     assert os.getenv('SPOTIPY_REDIRECT_URI'), "SPOTIPY_REDIRECT_URI not found in environment variables."
+
+    # ensure we have spotify login credentials in cache
+    if not os.path.isfile('.cache') and os.getenv("SPOTIPY_REFRESH_TOKEN"):
+        cache_data = {
+            'access_token': "",  # to be refreshed
+            'token_type': "Bearer",
+            'expires_in': 3600,
+            'scope': "playlist-read-private",
+            'expires_at':0,  # refresh now please
+            'refresh_token': os.getenv("SPOTIPY_REFRESH_TOKEN")
+        }
+        with open(".cache", "w") as f:
+            json.dump(cache_data, f)
 
     mpl = MonthlyPlaylistHandler()
 
