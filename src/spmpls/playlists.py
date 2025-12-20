@@ -1551,7 +1551,7 @@ class MonthlyPlaylistHandler:
         fig, ax
         '''
         
-        if highlight == None:
+        if highlight is None:
             highlight = ''
 
         # Plot =) 
@@ -1620,12 +1620,6 @@ class MonthlyPlaylistHandler:
             The amount of padding to add to either side of the xaxis, in units of time.
         '''
 
-        if highlight == None:
-            highlight = ''
-            alpha = 1
-        else:
-            alpha = 0.7
-
         df_genres = self.genre_timeseries(supergenre=supergenre)
 
         # Calculate ranks in each month
@@ -1669,12 +1663,6 @@ class MonthlyPlaylistHandler:
         xaxis_pad : pandas.Timedelta
             The amount of padding to add to either side of the xaxis, in units of time.
         '''
-
-        if highlight == None:
-            highlight = ''
-            alpha = 1
-        else:
-            alpha = 0.7
 
         df_artists = self.artist_timeseries()
 
